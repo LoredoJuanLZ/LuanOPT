@@ -35,7 +35,7 @@
             </li>
             <li>
                 <label for="toggle-playlist">
-                    <input type="checkbox" id="toggle-playlist" class="panel-toggle" data-target=".playlist-panel:not(.folders-panel)" checked>
+                    <input type="checkbox" id="toggle-playlist" class="panel-toggle" data-target=".playlist-panel:not(.folders-panel):not(.search-panel)" checked>
                     Lista de Reproducción
                 </label>
             </li>
@@ -51,7 +51,13 @@
                     Panel de Carpetas
                 </label>
             </li>
-        </ul>
+            <li>
+                <label for="toggle-search">
+                    <input type="checkbox" id="toggle-search" class="panel-toggle" data-target=".search-panel" checked>
+                    Búsqueda Online
+                </label>
+            </li>
+            </ul>
         
         <div class="sidebar-header" style="border-top: 1px solid var(--border-color); margin-top: 10px;">
             <h3>Configuración</h3>
@@ -276,7 +282,23 @@
                 <li class="empty-message">Añade archivos para ver las carpetas.</li>
             </ul>
         </div>
-    </div>
+
+        <div class="playlist-panel search-panel" draggable="true">
+            <div class="search-header">
+                <h3>Búsqueda Online (GitHub)</h3>
+                <span id="search-status" class="search-status-icon material-icons" style="display: none;">sync</span>
+            </div>
+            <div class="search-controls">
+                <input type="text" id="search-input" placeholder="Buscar canción por nombre...">
+                <button id="search-btn" title="Buscar">
+                    <span class="material-icons">search</span>
+                </button>
+            </div>
+            <ul id="search-results-list">
+                <li class="empty-message">Busca para ver resultados.</li>
+            </ul>
+        </div>
+        </div>
     
     <footer class="header-footer-bar">
         <div class="footer-content">
