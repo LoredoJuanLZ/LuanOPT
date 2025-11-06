@@ -154,6 +154,16 @@ let sessionStartTime;
 let sessionPlayCount = {};
 // ===== FIN VARS FOOTER (AÑADIDO) =====
 
+// ===== INICIO VARS RAVE SYNC (AÑADIDO) =====
+const SYNC_SERVER_URL = 'wss://17e88f87-3a95-47ab-beb6-7e4e9cc1289f-00-17bko8f94rzj.riker.replit.dev';
+let ws;
+let currentRoomId = null;
+let isHost = false;
+let syncInterval = null;
+
+let createRoomBtn, joinRoomBtn, joinRoomInput, roomCodeDisplay, syncStatus;
+// ===== FIN VARS RAVE SYNC =====
+
 
 // ====================================================================
 // B. FUNCIONES DE UI Y TEMAS
@@ -734,6 +744,7 @@ function updateMostPlayedUI() {
  * MODIFICADO: Ahora también aplica el tema dinámico si está activado.
  * MODIFICADO: Ahora busca letras en internet si no hay .lrc
  * MODIFICADO: Actualiza el footer (título y contador de "más escuchada").
+ * MODIFICADO: Llama a la lógica de RAVE SYNC si es el HOST.
  */
 function loadTrack(index, autoPlay = false) {
     if (index >= 0 && index < playlist.length && audioPlayer) {
@@ -820,6 +831,14 @@ function loadTrack(index, autoPlay = false) {
                         }
                     }
                     updateMediaSession(title, artist, albumArtUrl);
+                    
+                    // ===== INICIO SYNC (AÑADIDO) =====
+                    if (isHost && currentRoomId) {
+                        sendFullSyncState(); // Envía el estado con la nueva canción
+                        if (autoPlay) startSyncInterval();
+                        else stopSyncInterval();
+                    }
+                    // ===== FIN SYNC =====
                 },
                 onError: function(error) {
                     const title = track.name.replace(/\.[^/.]+$/, "");
@@ -846,6 +865,14 @@ function loadTrack(index, autoPlay = false) {
                         const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
                         applyThemeVariables(themes[savedThemeName], savedThemeName);
                     }
+                    
+                    // ===== INICIO SYNC (AÑADIDO) =====
+                    if (isHost && currentRoomId) {
+                        sendFullSyncState();
+                        if (autoPlay) startSyncInterval();
+                        else stopSyncInterval();
+                    }
+                    // ===== FIN SYNC =====
                 }
             });
         } else {
@@ -869,15 +896,29 @@ function loadTrack(index, autoPlay = false) {
                 const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
                 applyThemeVariables(themes[savedThemeName], savedThemeName);
             }
+            
+            // ===== INICIO SYNC (AÑADIDO) =====
+            // Fallback para cuando jsmediatags no carga
+            if (isHost && currentRoomId) {
+                sendFullSyncState();
+                if (autoPlay) startSyncInterval();
+                else stopSyncInterval();
+            }
+            // ===== FIN SYNC =====
         }
 
         updatePlaylistUI();
 
         function tryPlayOnce() {
             if (autoPlay) {
-                audioPlayer.play().catch(e => {
-                    playIcon.textContent = 'play_arrow';
-                });
+                // ===== INICIO SYNC (MODIFICADO) =====
+                // El cliente no debe hacer autoPlay, debe esperar al Host
+                if (isHost || !currentRoomId) {
+                    audioPlayer.play().catch(e => {
+                        playIcon.textContent = 'play_arrow';
+                    });
+                }
+                // ===== FIN SYNC =====
             }
             audioPlayer.removeEventListener('canplaythrough', tryPlayOnce);
         }
@@ -1037,6 +1078,10 @@ function createDynamicBars() {
 // E. FUNCIONES DE REPETICIÓN
 // ===================================
 function toggleRepeatMode() {
+    // ===== INICIO SYNC (AÑADIDO) =====
+    if (!isHost && currentRoomId) return; // Bloquear cliente
+    // ===== FIN SYNC =====
+    
     if (!repeatIcon || !audioPlayer) return;
     if (repeatMode === 'none') {
         repeatMode = 'one';
@@ -1212,36 +1257,57 @@ function updateMediaSession(title, artist, albumArtUrl) {
 function setupMediaSessionHandlers() {
     if ('mediaSession' in navigator) {
         navigator.mediaSession.setActionHandler('play', () => {
+            // ===== INICIO SYNC (AÑADIDO) =====
+            if (!isHost && currentRoomId) return; // Bloquear cliente
+            // ===== FIN SYNC =====
             if (audioPlayer.paused) {
                 audioPlayer.play().catch(e => console.error("Error al reanudar:", e)); 
             }
         });
         navigator.mediaSession.setActionHandler('pause', () => {
+            // ===== INICIO SYNC (AÑADIDO) =====
+            if (!isHost && currentRoomId) return; // Bloquear cliente
+            // ===== FIN SYNC =====
             if (!audioPlayer.paused) {
                 audioPlayer.pause();
             }
         });
         navigator.mediaSession.setActionHandler('nexttrack', () => {
+            // ===== INICIO SYNC (AÑADIDO) =====
+            if (!isHost && currentRoomId) return; // Bloquear cliente
+            // ===== FIN SYNC =====
             if (playlist.length > 0) {
                 let nextIndex = (currentTrackIndex + 1) % playlist.length;
                 loadTrack(nextIndex, true);
             }
         });
         navigator.mediaSession.setActionHandler('previoustrack', () => {
+            // ===== INICIO SYNC (AÑADIDO) =====
+            if (!isHost && currentRoomId) return; // Bloquear cliente
+            // ===== FIN SYNC =====
             if (playlist.length > 0) {
                 let prevIndex = (currentTrackIndex - 1 + playlist.length) % playlist.length;
                 loadTrack(prevIndex, true);
             }
         });
         navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+            // ===== INICIO SYNC (AÑADIDO) =====
+            if (!isHost && currentRoomId) return; // Bloquear cliente
+            // ===== FIN SYNC =====
             const seekOffset = details.seekOffset || 10; 
             audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - seekOffset);
         });
         navigator.mediaSession.setActionHandler('seekforward', (details) => {
+            // ===== INICIO SYNC (AÑADIDO) =====
+            if (!isHost && currentRoomId) return; // Bloquear cliente
+            // ===== FIN SYNC =====
             const seekOffset = details.seekOffset || 10; 
             audioPlayer.currentTime = Math.min(audioPlayer.duration, audioPlayer.currentTime + seekOffset);
         });
         navigator.mediaSession.setActionHandler('stop', () => {
+            // ===== INICIO SYNC (AÑADIDO) =====
+            if (!isHost && currentRoomId) return; // Bloquear cliente
+            // ===== FIN SYNC =====
             audioPlayer.pause();
             audioPlayer.currentTime = 0;
         });
@@ -1623,6 +1689,14 @@ document.addEventListener('DOMContentLoaded', () => {
     footerMostPlayed = document.getElementById('footer-most-played');
     // ===== FIN ASIGNACIÓN FOOTER (AÑADIDO) =====
 
+    // ===== INICIO ASIGNACIÓN RAVE SYNC (AÑADIDO) =====
+    createRoomBtn = document.getElementById('create-room-btn');
+    joinRoomBtn = document.getElementById('join-room-btn');
+    joinRoomInput = document.getElementById('join-room-input');
+    roomCodeDisplay = document.getElementById('room-code-display');
+    syncStatus = document.getElementById('sync-status');
+    // ===== FIN ASIGNACIÓN RAVE SYNC (AÑADIDO) =====
+
 
     sensitivityMultiplier = parseFloat(getComputedStyle(root).getPropertyValue('--sensitivity-multiplier'));
 
@@ -1760,6 +1834,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
         foldersList.addEventListener('click', (event) => {
+            // ===== INICIO SYNC (AÑADIDO) =====
+            if (!isHost && currentRoomId) return; // Bloquear cliente
+            // ===== FIN SYNC =====
+            
             const targetLi = event.target.closest('li');
             if (!targetLi) return; 
             if (targetLi.classList.contains('audio-item') && targetLi.dataset.folderIndex !== undefined) {
@@ -1969,6 +2047,26 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     // ===== FIN DE LISTENERS AÑADIDOS (Letras) =====
+    
+    // ===== INICIO LISTENERS RAVE SYNC (AÑADIDO) =====
+    if (createRoomBtn) {
+        createRoomBtn.addEventListener('click', () => {
+            isHost = true;
+            connectToSyncServer();
+        });
+    }
+    if (joinRoomBtn) {
+        joinRoomBtn.addEventListener('click', () => {
+            if (joinRoomInput && joinRoomInput.value.trim().length > 0) {
+                isHost = false;
+                connectToSyncServer(joinRoomInput.value.trim());
+            } else {
+                alert("Por favor, introduce un código de sala para unirte.");
+            }
+        });
+    }
+    // ===== FIN LISTENERS RAVE SYNC (AÑADIDO) =====
+
 
     // Listeners de Audio (ACTUALIZADO)
     
@@ -1996,6 +2094,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     playlistList.addEventListener('click', (event) => {
+        // ===== INICIO SYNC (AÑADIDO) =====
+        if (!isHost && currentRoomId) return; // Bloquear cliente
+        // ===== FIN SYNC =====
+        
         const li = event.target.closest('li');
         if (li && li.dataset.index && !li.classList.contains('empty-message')) {
             const index = parseInt(li.dataset.index);
@@ -2008,6 +2110,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     playPauseBtn.addEventListener('click', () => {
+        // ===== INICIO SYNC (AÑADIDO) =====
+        if (!isHost && currentRoomId) { // Bloquear cliente
+            console.log("Controles deshabilitados (Modo Cliente)");
+            return;
+        }
+        // ===== FIN SYNC =====
+        
         if (playlist.length === 0) {
             alert("Por favor, selecciona archivos de música (MP3/WAV) primero.");
             return;
@@ -2026,6 +2135,10 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (skipBackBtn) {
         skipBackBtn.addEventListener('click', () => {
+            // ===== INICIO SYNC (AÑADIDO) =====
+            if (!isHost && currentRoomId) return; // Bloquear cliente
+            // ===== FIN SYNC =====
+            
             if (audioPlayer) {
                 audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
             }
@@ -2034,6 +2147,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (skipForwardBtn) {
         skipForwardBtn.addEventListener('click', () => {
+            // ===== INICIO SYNC (AÑADIDO) =====
+            if (!isHost && currentRoomId) return; // Bloquear cliente
+            // ===== FIN SYNC =====
+            
             if (audioPlayer) {
                 audioPlayer.currentTime = Math.min(audioPlayer.duration, audioPlayer.currentTime + 10);
             }
@@ -2041,6 +2158,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     nextBtn.addEventListener('click', () => {
+        // ===== INICIO SYNC (AÑADIDO) =====
+        if (!isHost && currentRoomId) return; // Bloquear cliente
+        // ===== FIN SYNC =====
+        
         if (playlist.length > 0) {
             let nextIndex = (currentTrackIndex + 1) % playlist.length;
             loadTrack(nextIndex, true);
@@ -2048,11 +2169,25 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     prevBtn.addEventListener('click', () => {
+        // ===== INICIO SYNC (AÑADIDO) =====
+        if (!isHost && currentRoomId) return; // Bloquear cliente
+        // ===== FIN SYNC =====
+        
         if (playlist.length > 0) {
             let prevIndex = (currentTrackIndex - 1 + playlist.length) % playlist.length;
             loadTrack(prevIndex, true);
         }
     });
+    
+    // ===== INICIO SYNC (AÑADIDO) =====
+    // Listener para cuando el HOST busca (seek) manualmente
+    audioPlayer.addEventListener('seeked', () => {
+        if (isHost && currentRoomId) {
+             // Solo envía el sync si el 'seek' ocurrió
+            sendFullSyncState();
+        }
+    });
+    // ===== FIN SYNC =====
 
     // ACTUALIZADO: Añadido sincronizador de letras
     audioPlayer.addEventListener('timeupdate', () => {
@@ -2107,10 +2242,24 @@ document.addEventListener('DOMContentLoaded', () => {
     audioPlayer.addEventListener('play', () => {
         playIcon.textContent = 'pause';
         requestAnimationFrame(visualize);
+        
+        // ===== INICIO SYNC (AÑADIDO) =====
+        if (isHost && currentRoomId) {
+            sendFullSyncState();
+            startSyncInterval();
+        }
+        // ===== FIN SYNC =====
     });
 
     audioPlayer.addEventListener('pause', () => {
         playIcon.textContent = 'play_arrow';
+        
+        // ===== INICIO SYNC (AÑADIDO) =====
+        if (isHost && currentRoomId) {
+            sendFullSyncState();
+            stopSyncInterval();
+        }
+        // ===== FIN SYNC =====
     });
     
     // MODIFICADO: Limpia el footer cuando la playlist termina
@@ -2145,6 +2294,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     progressBarContainer.addEventListener('click', (e) => {
+        // ===== INICIO SYNC (AÑADIDO) =====
+        if (!isHost && currentRoomId) return; // Bloquear cliente
+        // ===== FIN SYNC =====
+        
         if (audioPlayer.duration > 0) {
             const clickX = e.clientX - progressBarContainer.getBoundingClientRect().left;
             const width = progressBarContainer.clientWidth;
@@ -2201,281 +2354,281 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-/* ================= P2P / SIGNALING SYNC - REEMPLAZO ROBUSTO =================
-   Pega este bloque al final de tu script.js (reemplaza la versión anterior P2P).
-   Mejora: espera a que la conexión WS esté OPEN antes de mandar create/join.
-*/
-(function(){
-    const SIGNALING_WSS = 'wss://17e88f87-3a95-47ab-beb6-7e4e9cc1289f-00-17bko8f94rzj.riker.replit.dev';
+// ====================================================================
+// K. FUNCIONES RAVE SYNC (AÑADIDO)
+// ====================================================================
 
-    // util DOM id
-    const $ = id => document.getElementById(id);
+/**
+ * Habilita o deshabilita los controles del reproductor para el modo cliente.
+ */
+function setClientMode(isClient) {
+    const clientMessage = isClient ? "Controles deshabilitados (Modo Cliente)" : "";
 
-    // Estado WS
-    let ws = null;
-    let currentRoomId = null;
-    let isHost = false;
-    let openingPromise = null; // Promise que resuelve cuando ws está OPEN
+    if (playPauseBtn) {
+        playPauseBtn.disabled = isClient;
+        playPauseBtn.title = clientMessage;
+    }
+    if (nextBtn) {
+        nextBtn.disabled = isClient;
+        nextBtn.title = clientMessage;
+    }
+    if (prevBtn) {
+        prevBtn.disabled = isClient;
+        prevBtn.title = clientMessage;
+    }
+    if (skipBackBtn) {
+        skipBackBtn.disabled = isClient;
+        skipBackBtn.title = clientMessage;
+    }
+    if (skipForwardBtn) {
+        skipForwardBtn.disabled = isClient;
+        skipForwardBtn.title = clientMessage;
+    }
+    if (repeatBtn) {
+        repeatBtn.disabled = isClient;
+        repeatBtn.title = clientMessage;
+    }
+    
+    if (playlistList) {
+        playlistList.style.pointerEvents = isClient ? 'none' : 'auto';
+        playlistList.style.opacity = isClient ? 0.7 : 1;
+    }
+    if (progressBarContainer) {
+        progressBarContainer.style.pointerEvents = isClient ? 'none' : 'auto';
+        progressBarContainer.style.opacity = isClient ? 0.7 : 1;
+    }
+    if (foldersList) {
+        // Deshabilitar clics en la lista de carpetas
+        foldersList.style.pointerEvents = isClient ? 'none' : 'auto';
+        foldersList.style.opacity = isClient ? 0.7 : 1;
+    }
+}
 
-    // Abre WS y devuelve Promise que resuelve cuando OPEN o rechaza en error
-    function openWebSocket() {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            return Promise.resolve(ws);
-        }
-        if (openingPromise) return openingPromise;
+/**
+ * Envía la carga útil (payload) a todos en la sala.
+ */
+function sendToRoom(payload) {
+    if (ws && ws.readyState === WebSocket.OPEN && currentRoomId) {
+        ws.send(JSON.stringify({
+            type: 'relay-message',
+            roomId: currentRoomId,
+            payload: payload
+        }));
+    }
+}
 
-        openingPromise = new Promise((resolve, reject) => {
-            try {
-                console.log('[P2P] -> intentando abrir WebSocket a', SIGNALING_WSS);
-                ws = new WebSocket(SIGNALING_WSS);
-            } catch (err) {
-                console.error('[P2P] error creando WebSocket:', err);
-                openingPromise = null;
-                updateStatus('Error al crear WS');
-                return reject(err);
-            }
+/**
+ * (HOST) Envía el estado completo de reproducción a la sala.
+ */
+function sendFullSyncState() {
+    if (!isHost || !currentRoomId || currentTrackIndex < 0) return;
 
-            const cleanup = () => { /* no-op placeholder */ };
+    const currentTrack = playlist[currentTrackIndex];
+    if (!currentTrack) return;
+    
+    const state = {
+        type: 'full-sync',
+        trackIndex: currentTrackIndex,
+        currentTime: audioPlayer.currentTime,
+        isPlaying: !audioPlayer.paused,
+        // Envía el nombre del archivo para una verificación básica
+        trackName: currentTrack.name 
+    };
+    sendToRoom(state);
+}
 
-            ws.addEventListener('open', () => {
-                console.log('[P2P] WebSocket abierto');
-                updateStatus('Conectado al servidor de señalización');
-                resolve(ws);
-                openingPromise = null;
-            });
+/**
+ * (HOST) Inicia el intervalo de sincronización.
+ */
+function startSyncInterval() {
+    if (!isHost) return;
+    stopSyncInterval(); // Limpiar el anterior si existe
+    syncInterval = setInterval(sendFullSyncState, 3000); // Sincronizar cada 3 segundos
+}
 
-            ws.addEventListener('message', ev => {
-                // el servidor puede reenviarnos JSON
-                try {
-                    const data = JSON.parse(ev.data);
-                    console.log('[P2P] Mensaje WS recibido:', data);
-                    handleServerMessage(data);
-                } catch (e) {
-                    console.warn('[P2P] Mensaje WS no JSON:', ev.data);
-                }
-            });
+/**
+ * (HOST) Detiene el intervalo de sincronización.
+ */
+function stopSyncInterval() {
+    if (syncInterval) {
+        clearInterval(syncInterval);
+    }
+    syncInterval = null;
+}
 
-            ws.addEventListener('close', () => {
-                console.warn('[P2P] WebSocket cerrado');
-                updateStatus('Desconectado del servidor');
-                // limpiar para permitir reabrir más tarde
-                ws = null;
-                openingPromise = null;
-            });
+/**
+ * (CLIENTE) Maneja un mensaje de 'full-sync' entrante del host.
+ */
+function handleSyncState(payload) {
+    if (isHost) return; // El host no debe escucharse a sí mismo
 
-            ws.addEventListener('error', err => {
-                console.error('[P2P] Error WebSocket:', err);
-                updateStatus('Error en WebSocket');
-                ws = null;
-                openingPromise = null;
-                reject(err);
-            });
+    const { trackIndex, currentTime, isPlaying, trackName } = payload;
 
-            // timeout si no abre en 6s
-            setTimeout(() => {
-                if (ws && ws.readyState !== WebSocket.OPEN) {
-                    console.warn('[P2P] WS no abrió en 6s, cerrando intento');
-                    try { ws.close(); } catch(_) {}
-                    openingPromise = null;
-                    reject(new Error('timeout opening ws'));
-                }
-            }, 6000);
+    // Verificación de seguridad: ¿Tenemos esta canción?
+    const localTrack = playlist[trackIndex];
+    if (!localTrack) {
+        console.warn(`Sync: El Host está en trackIndex ${trackIndex}, pero no lo tenemos.`);
+        if (syncStatus) syncStatus.textContent = `Error: Desincronizado (Falta Track ${trackIndex+1})`;
+        return;
+    }
+    
+    // Verificación de nombre (mejor esfuerzo)
+    if (localTrack.name !== trackName) {
+        console.warn(`Sync: Desajuste de nombres. Host: ${trackName}, Local: ${localTrack.name}`);
+        if (syncStatus) syncStatus.textContent = `Alerta: ¿Listas diferentes?`;
+    }
+
+    // Aplicar el estado
+    
+    // 1. Cargar la canción si es diferente
+    if (currentTrackIndex !== trackIndex) {
+        // 'loadTrack' es asíncrono, pero está bien.
+        // El 'autoPlay' se maneja abajo.
+        loadTrack(trackIndex, false); // Cargar sin autoPlay
+    }
+    
+    // 2. Sincronizar tiempo
+    // Aplicar un pequeño buffer. Si la diferencia es < 2s, no buscar (evita saltos)
+    const timeDifference = Math.abs(audioPlayer.currentTime - currentTime);
+    
+    // Forzar la sincronización si la canción acaba de cargarse (currentTime es 0)
+    if (timeDifference > 2 || audioPlayer.currentTime === 0) {
+        audioPlayer.currentTime = currentTime;
+    }
+
+    // 3. Sincronizar estado de reproducción
+    if (isPlaying && audioPlayer.paused) {
+        initAudioContext(); // Asegurarse de que el contexto esté listo
+        audioPlayer.play().catch(e => {
+            console.warn("Sync: El navegador bloqueó el auto-play. El usuario debe hacer clic.");
+            if (syncStatus) syncStatus.textContent = "¡Haz clic para iniciar el audio!";
         });
-
-        return openingPromise;
+    } else if (!isPlaying && !audioPlayer.paused) {
+        audioPlayer.pause();
     }
+    
+    if (syncStatus) syncStatus.textContent = `Sincronizado (Host) - ${isPlaying ? "Play" : "Pausa"}`;
+}
 
-    function sendRaw(obj){
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-            console.log('[P2P] sendRaw: WS no abierto, intentando abrir y reenviar');
-            updateStatus('Conectando al servidor...');
-            return openWebSocket().then(() => {
-                try {
-                    ws.send(JSON.stringify(obj));
-                    console.log('[P2P] Mensaje enviado tras abrir WS:', obj);
-                } catch(e) {
-                    console.error('[P2P] Fallo al enviar mensaje:', e);
-                }
-            }).catch(err => {
-                console.error('[P2P] No se pudo abrir WS para enviar:', err);
-            });
-        }
-        try {
-            ws.send(JSON.stringify(obj));
-            console.log('[P2P] Mensaje enviado:', obj);
-        } catch(e) {
-            console.error('[P2P] Error enviando mensaje:', e);
-        }
-    }
-
-    function sendRelay(payload, roomId){
-        if(!roomId) { console.warn('[P2P] sendRelay sin roomId'); return; }
-        const msg = Object.assign({ type: 'relay-message', roomId: roomId }, payload);
-        sendRaw(msg);
-    }
-
-    // Actualiza indicador de estado visual y console
-    function updateStatus(text){
-        console.log('[P2P STATUS]', text);
-        const st = $('rave-status');
-        if(st) st.textContent = text;
-    }
-
-    // Manejo de mensajes del servidor (según tu server)
-    function handleServerMessage(data){
-        if(!data || !data.type) return;
-        switch(data.type){
+/**
+ * Maneja los mensajes entrantes del servidor WebSocket.
+ */
+function handleServerMessage(event) {
+    try {
+        const data = JSON.parse(event.data);
+        
+        switch (data.type) {
             case 'room-created':
                 currentRoomId = data.roomId;
-                isHost = true;
-                if($('my-room-id')) $('my-room-id').value = currentRoomId;
-                updateStatus('Sala creada: ' + currentRoomId);
+                if (roomCodeDisplay) roomCodeDisplay.value = currentRoomId;
+                if (syncStatus) syncStatus.textContent = 'Sala creada. ¡Comparte el código!';
+                setClientMode(false); // Es Host
+                if (createRoomBtn) createRoomBtn.disabled = true;
+                if (joinRoomBtn) joinRoomBtn.disabled = true;
                 break;
+                
             case 'room-joined':
                 currentRoomId = data.roomId;
-                isHost = false;
-                updateStatus('Unido a la sala: ' + currentRoomId);
+                if (roomCodeDisplay) roomCodeDisplay.value = currentRoomId;
+                if (syncStatus) syncStatus.textContent = 'Unido a la sala. Esperando al Host...';
+                if (joinRoomInput) joinRoomInput.value = '';
+                setClientMode(true); // Es Cliente
+                if (createRoomBtn) createRoomBtn.disabled = true;
+                if (joinRoomBtn) joinRoomBtn.disabled = true;
+                alert(`¡Te has unido a la sala ${currentRoomId}!\n\nIMPORTANTE:\nAsegúrate de tener la MISMA playlist cargada que el Host, en el MISMO orden.`);
                 break;
+                
             case 'client-joined':
-                updateStatus('Alguien se ha unido a tu sala.');
+                // (HOST) Alguien se unió.
+                if (syncStatus) syncStatus.textContent = '¡Alguien se unió!';
+                console.log("Sync: Cliente unido. Enviando estado actual...");
+                sendFullSyncState(); // Enviar el estado actual al nuevo cliente
                 break;
+                
             case 'client-left':
-                updateStatus('Cliente salió de la sala.');
+                if (syncStatus) syncStatus.textContent = 'Alguien se fue.';
                 break;
+                
+            case 'relay-message':
+                // (CLIENTE) Mensaje del Host
+                if (data.payload && data.payload.type === 'full-sync') {
+                    handleSyncState(data.payload);
+                }
+                break;
+                
             case 'error':
-                updateStatus('Error: ' + (data.message || 'desconocido'));
+                console.error('Sync Error:', data.message);
+                alert(`Error del servidor: ${data.message}`);
+                if (syncStatus) syncStatus.textContent = `Error: ${data.message}`;
                 break;
-            default:
-                // Si el servidor reenvía directamente payloads sync
-                if(data.type && data.type.startsWith('sync-')){
-                    handlePeerSyncMessage(data);
-                } else if (data.type === 'relay-message') {
-                    // reconstruir payload quitando type/roomId
-                    const payload = Object.assign({}, data);
-                    delete payload.type;
-                    delete payload.roomId;
-                    handlePeerSyncMessage(payload);
-                } else {
-                    console.log('[P2P] Mensaje desconocido:', data);
-                }
         }
+        
+    } catch (e) {
+        console.error('Error al parsear mensaje del WS:', e);
+    }
+}
+
+/**
+ * Inicia la conexión con el servidor de señalización.
+ */
+function connectToSyncServer(roomIdToJoin = null) {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        alert("Ya estás conectado o conectándote a una sala.");
+        return;
+    }
+    
+    // ===== INICIO SYNC (AÑADIDO) =====
+    // Requisito: Debe haber una playlist cargada para sincronizar
+    if (playlist.length === 0) {
+        alert("Debes cargar una playlist (archivos de música) ANTES de crear o unirte a una sala.");
+        return;
+    }
+    // ===== FIN SYNC =====
+
+    if (syncStatus) syncStatus.textContent = 'Conectando al servidor...';
+    
+    try {
+        ws = new WebSocket(SYNC_SERVER_URL);
+    } catch (e) {
+        console.error("Error al crear WebSocket:", e);
+        if (syncStatus) syncStatus.textContent = 'Error: No se pudo conectar.';
+        return;
     }
 
-    // Manejo de mensajes sync recibidos desde otros peers
-    function handlePeerSyncMessage(msg){
-        if(!msg || !msg.type) return;
-        const player = document.querySelector('audio#audio-player');
-        if(!player) return;
-        const now = Date.now();
-
-        if(msg.type === 'sync-play'){
-            const sentTime = msg.timestamp || now;
-            const sentCurrent = Number(msg.currentTime || 0);
-            const rtt = Math.max(0, (now - sentTime)/1000);
-            const target = sentCurrent + rtt;
-            if(Math.abs(player.currentTime - target) > 0.5) player.currentTime = target;
-            player.play().catch(()=>{});
-            updateStatus('Reproduciendo (sincronizado). RTT ~' + rtt.toFixed(2) + 's');
-        } else if(msg.type === 'sync-pause'){
-            const sentTime = msg.timestamp || now;
-            const sentCurrent = Number(msg.currentTime || 0);
-            const rtt = Math.max(0, (now - sentTime)/1000);
-            const target = sentCurrent + rtt;
-            if(Math.abs(player.currentTime - target) > 0.5) player.currentTime = target;
-            player.pause();
-            updateStatus('Pausado por peer');
-        } else if(msg.type === 'sync-seek'){
-            const sentCurrent = Number(msg.currentTime || 0);
-            player.currentTime = sentCurrent;
-            updateStatus('Seek por peer a ' + Math.floor(sentCurrent) + 's');
-        } else if(msg.type === 'sync-load'){
-            const fileName = msg.fileName || 'desconocido';
-            updateStatus('Peer cargó: ' + fileName);
+    ws.onopen = () => {
+        if (syncStatus) syncStatus.textContent = 'Conectado. Creando/Uniéndose a sala...';
+        
+        if (isHost) {
+            // Crear una sala
+            ws.send(JSON.stringify({ type: 'create-room' }));
+        } else if (roomIdToJoin) {
+            // Unirse a una sala
+            ws.send(JSON.stringify({ type: 'join-room', roomId: roomIdToJoin.toUpperCase() }));
         }
-    }
-
-    // UI wiring: adjunta handlers a botones (si existen ahora o más tarde)
-    function wireUI(){
-        const createBtn = $('create-room-btn');
-        const joinBtn = $('join-room-btn');
-        const copyBtn = $('copy-room-btn');
-        const joinInput = $('join-room-input');
-
-        if(createBtn){
-            createBtn.addEventListener('click', async function(){
-                updateStatus('Creando sala... conectando al servidor');
-                try{
-                    await openWebSocket();
-                    updateStatus('Servidor conectado. Solicitando creación de sala...');
-                    // enviar create-room y esperar respuesta del server
-                    sendRaw({ type: 'create-room' });
-                }catch(err){
-                    console.error('[P2P] No se pudo abrir WS al crear sala:', err);
-                    updateStatus('Error: no se pudo conectar al servidor');
-                }
-            });
-        } else {
-            console.warn('[P2P] create-room-btn no encontrado en DOM.');
-        }
-
-        if(joinBtn){
-            joinBtn.addEventListener('click', async function(){
-                const code = (joinInput && joinInput.value || '').trim().toUpperCase();
-                if(!code){ updateStatus('Introduce un código para unirse'); return; }
-                updateStatus('Uniéndose a ' + code + ' — conectando al servidor...');
-                try{
-                    await openWebSocket();
-                    sendRaw({ type: 'join-room', roomId: code });
-                }catch(err){
-                    console.error('[P2P] Error al abrir WS para unirse:', err);
-                    updateStatus('Error al conectar al servidor');
-                }
-            });
-        } else {
-            console.warn('[P2P] join-room-btn no encontrado en DOM.');
-        }
-
-        if(copyBtn){
-            copyBtn.addEventListener('click', function(){
-                const code = $('my-room-id') ? $('my-room-id').value : '';
-                if(!code) { updateStatus('No hay código para copiar'); return; }
-                navigator.clipboard?.writeText(code).then(()=> updateStatus('Código copiado al portapapeles') ).catch(()=> updateStatus('No se pudo copiar'));
-            });
-        }
-    }
-
-    // Hook eventos del reproductor para enviar relays (si hay room)
-    function hookPlayerEvents(){
-        const player = document.querySelector('audio#audio-player');
-        if(!player) return;
-        player.addEventListener('play', ()=> {
-            if(!currentRoomId) return;
-            sendRelay({ type: 'sync-play', currentTime: player.currentTime, timestamp: Date.now() }, currentRoomId);
-            console.log('[P2P] emit sync-play');
-        });
-        player.addEventListener('pause', ()=> {
-            if(!currentRoomId) return;
-            sendRelay({ type: 'sync-pause', currentTime: player.currentTime, timestamp: Date.now() }, currentRoomId);
-            console.log('[P2P] emit sync-pause');
-        });
-        player.addEventListener('seeked', ()=> {
-            if(!currentRoomId) return;
-            sendRelay({ type: 'sync-seek', currentTime: player.currentTime, timestamp: Date.now() }, currentRoomId);
-            console.log('[P2P] emit sync-seek');
-        });
-    }
-
-    // Try to wire UI immediately if DOM is ready, otherwise wait
-    if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        wireUI();
-        hookPlayerEvents();
-    } else {
-        document.addEventListener('DOMContentLoaded', ()=>{ wireUI(); hookPlayerEvents(); });
-    }
-
-    // Expose for debugging in console
-    window._P2P_SIGNALING = {
-        openWebSocket, sendRaw, sendRelay, handleServerMessage, handlePeerSyncMessage: handlePeerSyncMessage,
-        getState: () => ({ wsState: ws ? ws.readyState : null, currentRoomId, isHost })
     };
-})();
+
+    ws.onmessage = handleServerMessage;
+
+    ws.onclose = () => {
+        console.log("Sync: Conexión cerrada.");
+        if (syncStatus) syncStatus.textContent = 'Estado: Desconectado';
+        if (roomCodeDisplay) roomCodeDisplay.value = '';
+        stopSyncInterval();
+        setClientMode(false); // Habilitar controles de nuevo
+        currentRoomId = null;
+        isHost = false;
+        ws = null;
+        if (createRoomBtn) createRoomBtn.disabled = false;
+        if (joinRoomBtn) joinRoomBtn.disabled = false;
+    };
+
+    ws.onerror = (err) => {
+        console.error("Sync: Error de WebSocket:", err);
+        if (syncStatus) syncStatus.textContent = 'Error de conexión.';
+        stopSyncInterval();
+        setClientMode(false);
+        if (createRoomBtn) createRoomBtn.disabled = false;
+        if (joinRoomBtn) joinRoomBtn.disabled = false;
+        ws = null;
+    };
+}
