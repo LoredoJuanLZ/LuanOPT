@@ -1050,6 +1050,10 @@ body.mobile-detected #mobile-folder-btn {
     overflow-y: auto;
     color: var(--card-text-color);
     transition: color 0.5s;
+
+    /* --- AÑADIDO (Soporte Firefox) --- */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
 }
 
 .sidebar-list li {
@@ -1119,6 +1123,18 @@ body.mobile-detected #mobile-folder-btn {
 /* Clase para ocultar paneles (AÑADIDO) */
 .panel-hidden {
     display: none !important;
+}
+
+/* --- AÑADIDO: Estilos de Scrollbar para Barra Lateral --- */
+.sidebar-list::-webkit-scrollbar {
+    width: 5px;
+}
+.sidebar-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+.sidebar-list::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 10px;
 }
 /* ===== FIN SECCIÓN 12 ===== */
 
