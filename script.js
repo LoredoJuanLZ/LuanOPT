@@ -2458,13 +2458,14 @@ function stopSyncInterval() {
 
 /**
  * (CLIENTE) Maneja un mensaje de 'full-sync' entrante del host.
+ * ===== ESTA ES LA FUNCIÓN CORREGIDA =====
  */
 function handleSyncState(payload) {
     if (isHost) return; // El host no debe escucharse a sí mismo
 
     const { trackIndex, currentTime, isPlaying, trackName } = payload;
 
-    // Verificación de seguridad: ¿Tenemos esta canción?
+    // Verificación de seguridad (igual que antes)
     const localTrack = playlist[trackIndex];
     if (!localTrack) {
         console.warn(`Sync: El Host está en trackIndex ${trackIndex}, pero no lo tenemos.`);
@@ -2472,41 +2473,75 @@ function handleSyncState(payload) {
         return;
     }
     
-    // Verificación de nombre (mejor esfuerzo)
     if (localTrack.name !== trackName) {
         console.warn(`Sync: Desajuste de nombres. Host: ${trackName}, Local: ${localTrack.name}`);
         if (syncStatus) syncStatus.textContent = `Alerta: ¿Listas diferentes?`;
     }
 
-    // Aplicar el estado
-    
-    // 1. Cargar la canción si es diferente
-    if (currentTrackIndex !== trackIndex) {
-        // 'loadTrack' es asíncrono, pero está bien.
-        // El 'autoPlay' se maneja abajo.
-        loadTrack(trackIndex, false); // Cargar sin autoPlay
-    }
-    
-    // 2. Sincronizar tiempo
-    // Aplicar un pequeño buffer. Si la diferencia es < 2s, no buscar (evita saltos)
-    const timeDifference = Math.abs(audioPlayer.currentTime - currentTime);
-    
-    // Forzar la sincronización si la canción acaba de cargarse (currentTime es 0)
-    if (timeDifference > 2 || audioPlayer.currentTime === 0) {
-        audioPlayer.currentTime = currentTime;
-    }
+    // ===== INICIO DE LA CORRECCIÓN DE LÓGICA =====
 
-    // 3. Sincronizar estado de reproducción
-    if (isPlaying && audioPlayer.paused) {
-        initAudioContext(); // Asegurarse de que el contexto esté listo
-        audioPlayer.play().catch(e => {
-            console.warn("Sync: El navegador bloqueó el auto-play. El usuario debe hacer clic.");
-            if (syncStatus) syncStatus.textContent = "¡Haz clic para iniciar el audio!";
-        });
-    } else if (!isPlaying && !audioPlayer.paused) {
-        audioPlayer.pause();
+    /**
+     * Esta función aplica el estado del Host (tiempo y play/pause).
+     * Se llamará inmediatamente si la canción ya está cargada,
+     * o DESPUÉS de que cargue si es una canción nueva.
+     * * @param {boolean} isNewTrack - True si la canción acaba de ser cargada.
+     */
+    const applyState = (isNewTrack = false) => {
+        
+        // 1. Sincronizar tiempo
+        const timeDifference = Math.abs(audioPlayer.currentTime - currentTime);
+        
+        // Si es una canción nueva, SIEMPRE buscar (seek) al tiempo del Host.
+        // Si es la misma canción, solo buscar si la diferencia es > 1.5s 
+        // (para evitar saltos "nerviosos" por lag de red menor a 1s).
+        if (isNewTrack || timeDifference > 1.5) {
+            console.log(`Sync: Ajustando tiempo (Host: ${currentTime}, Local: ${audioPlayer.currentTime})`);
+            audioPlayer.currentTime = currentTime;
+        }
+
+        // 2. Sincronizar estado de reproducción
+        if (isPlaying && audioPlayer.paused) {
+            initAudioContext();
+            audioPlayer.play().catch(e => {
+                console.warn("Sync: El navegador bloqueó el auto-play.");
+                if (syncStatus) syncStatus.textContent = "¡Haz clic para iniciar el audio!";
+            });
+        } else if (!isPlaying && !audioPlayer.paused) {
+            audioPlayer.pause();
+        }
+    };
+
+    // DECISIÓN: ¿Es una canción nueva o solo un update de tiempo?
+    if (currentTrackIndex !== trackIndex) {
+        // --- CASO 1: Es una canción NUEVA ---
+        // NO aplicar estado aún. Debemos esperar a que la canción cargue.
+        
+        const onTrackLoaded = () => {
+            console.log("Sync: Nueva canción cargada por el Host. Aplicando estado.");
+            // Ahora que la canción está lista (metadata cargada), aplicamos el estado.
+            // Ponemos isNewTrack = true para FORZAR la búsqueda (seek) al tiempo correcto.
+            applyState(true); 
+            
+            // Limpiar este listener temporal para que no se ejecute de nuevo.
+            audioPlayer.removeEventListener('loadedmetadata', onTrackLoaded);
+        };
+        
+        // Añadimos un listener temporal que se disparará UNA SOLA VEZ
+        // cuando 'loadTrack' termine de cargar la metadata.
+        audioPlayer.addEventListener('loadedmetadata', onTrackLoaded);
+        
+        // Iniciar la carga de la canción (sin autoPlay)
+        loadTrack(trackIndex, false); 
+        
+    } else {
+        // --- CASO 2: Es la MISMA canción ---
+        // (Es solo una actualización de tiempo o un evento de play/pause).
+        // Es seguro aplicar el estado inmediatamente.
+        applyState(false);
     }
     
+    // ===== FIN DE LA CORRECCIÓN DE LÓGICA =====
+
     if (syncStatus) syncStatus.textContent = `Sincronizado (Host) - ${isPlaying ? "Play" : "Pausa"}`;
 }
 
