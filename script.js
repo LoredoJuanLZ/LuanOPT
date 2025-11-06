@@ -154,16 +154,26 @@ let sessionStartTime;
 let sessionPlayCount = {};
 // ===== FIN VARS FOOTER (AÑADIDO) =====
 
-// ===== INICIO VARS RAVE SYNC (AÑADIDO) =====
-// ¡¡¡ CORRECCIÓN DE URL !!!
+// ===== INICIO DE CÓDIGO AÑADIDO/MODIFICADO (ONLINE SYNC) =====
+
+// --- VARS BÚSQUEDA ONLINE ---
+let searchInput, searchBtn, searchResultsList, searchStatus;
+// ===== INICIO DE MODIFICACIÓN (Arreglo de URL y Playlists) =====
+const GITHUB_REPO_URL = 'https://raw.githubusercontent.com/loredojuanlz/canciones-rave/main/'; // <<-- CORREGIDO
+const ONLINE_SONG_LIST_PATH = 'playlists.json'; // <<-- CAMBIADO
+let allOnlinePlaylists = []; // <<-- CAMBIADO (antes allOnlineSongs)
+// ===== FIN DE MODIFICACIÓN (Arreglo de URL y Playlists) =====
+let currentPlaylistSource = 'local'; // 'local', 'folder', o 'online'
+
+// --- VARS RAVE SYNC ---
 const SYNC_SERVER_URL = 'wss://17e88f87-3a95-47ab-beb6-7e4e9cc1289f-00-17bko8f94rzj.riker.replit.dev';
 let ws;
 let currentRoomId = null;
 let isHost = false;
 let syncInterval = null;
 
-let createRoomBtn, joinRoomBtn, joinRoomInput, roomCodeDisplay, syncStatus;
-// ===== FIN VARS RAVE SYNC =====
+let createRoomBtn, joinRoomBtn, joinRoomInput, roomCodeDisplay, syncStatusElement; // 'syncStatus' renombrado a 'syncStatusElement' para evitar conflicto
+// ===== FIN DE CÓDIGO AÑADIDO/MODIFICADO (ONLINE SYNC) =====
 
 
 // ====================================================================
@@ -194,10 +204,12 @@ function closeSidebar() {
  * @param {boolean} isVisible - True si debe ser visible, false si debe ocultarse.
  */
 function setPanelVisibility(panelSelector, isVisible) {
-    // Caso especial para la lista de reproducción, para no seleccionar el panel de carpetas
+    // ===== INICIO DE CÓDIGO MODIFICADO (Selector de Playlist) =====
+    // Caso especial para la lista de reproducción, para no seleccionar el panel de carpetas o búsqueda
     let panel;
-    if (panelSelector === ".playlist-panel:not(.folders-panel)") {
-         panel = document.querySelector(".playlist-panel:not(.folders-panel)");
+    if (panelSelector === ".playlist-panel:not(.folders-panel):not(.search-panel)") {
+         panel = document.querySelector(".playlist-panel:not(.folders-panel):not(.search-panel)");
+    // ===== FIN DE CÓDIGO MODIFICADO =====
     } else {
          panel = document.querySelector(panelSelector);
     }
@@ -248,6 +260,13 @@ function updatePlaylistUI() {
     
     playlistList.innerHTML = '';
     
+    // ===== INICIO DE CÓDIGO MODIFICADO (Mensaje de Playlist) =====
+    if (currentPlaylistSource === 'online') {
+        playlistList.innerHTML = '<li class="empty-message">Reproduciendo desde GitHub.</li>';
+        return;
+    }
+    // ===== FIN DE CÓDIGO MODIFICADO =====
+
     if (playlist.length === 0) {
         playlistList.innerHTML = '<li class="empty-message">Carga archivos para ver la lista.</li>';
         return;
@@ -746,6 +765,7 @@ function updateMostPlayedUI() {
  * MODIFICADO: Ahora busca letras en internet si no hay .lrc
  * MODIFICADO: Actualiza el footer (título y contador de "más escuchada").
  * MODIFICADO: Llama a la lógica de RAVE SYNC si es el HOST.
+ * MODIFICADO: Maneja pistas locales (File) y online (Object {isOnline, url, name}).
  */
 function loadTrack(index, autoPlay = false) {
     if (index >= 0 && index < playlist.length && audioPlayer) {
@@ -768,145 +788,280 @@ function loadTrack(index, autoPlay = false) {
         
         let albumArtUrl = 'https://via.placeholder.com/512x512.png?text=M+Icon'; 
 
-        if (audioPlayer.src && audioPlayer.src.startsWith('blob:')) {
-             URL.revokeObjectURL(audioPlayer.src);
-        }
+        // ===== INICIO DE CÓDIGO MODIFICADO (Online vs Local) =====
         
-        const objectURL = URL.createObjectURL(track);
-        audioPlayer.src = objectURL;
-        
-        songTitle.textContent = 'Cargando metadatos...';
-        artistName.textContent = '';
-        if (headerSongTitle) headerSongTitle.textContent = 'Cargando...'; 
-        if (footerSongTitle) footerSongTitle.textContent = 'Cargando...'; // <-- FOOTER
-        albumArtContainer.style.backgroundImage = 'none';
-        albumIcon.style.display = 'block';
+        // --- CASO 1: CANCIÓN ONLINE (Objeto) ---
+        if (track.isOnline) {
+            if (audioPlayer.src && audioPlayer.src.startsWith('blob:')) {
+                URL.revokeObjectURL(audioPlayer.src);
+            }
+            
+            // =======================================================
+            // ===== INICIO DE LA CORRECCIÓN DE CORS (PROXY CORS) =====
+            // =======================================================
+            
+            // 1. Asignar la URL con crossOrigin para el audio
+            audioPlayer.crossOrigin = "anonymous";
+            audioPlayer.src = track.url;
+            
+            // --- INICIO DE MODIFICACIÓN (Arreglo de metadatos online) ---
+            
+            // Pre-llenar con info básica
+            const basicTitle = track.name.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
+            songTitle.textContent = basicTitle;
+            artistName.textContent = 'Cargando metadatos...';
+            if (headerSongTitle) headerSongTitle.textContent = basicTitle; 
+            if (footerSongTitle) footerSongTitle.textContent = basicTitle;
+            albumArtContainer.style.backgroundImage = 'none';
+            albumIcon.style.display = 'block';
 
-        // BUSCAR LETRAS LOCALES (.lrc)
-        // Obtener nombre base (ej. "Mi Cancion")
-        const baseName = track.name.replace(/\.[^/.]+$/, "");
-        const lrcFile = lrcMap.get(baseName); // Buscar en el mapa
-        
+            // No hay .lrc locales, así que buscamos en internet
+            // (Lo hacemos aquí para que la búsqueda inicie de inmediato)
+            fetchLyrics('Artista Desconocido', basicTitle, currentTrackIndex);
 
-        if (window.jsmediatags) {
-            window.jsmediatags.read(track, {
-                onSuccess: function(tag) {
-                    const tags = tag.tags;
-                    const title = tags.title || track.name.replace(/\.[^/.]+$/, "");
-                    // AQUÍ es donde artist puede ser "Artista 1;Artista 2"
-                    const artist = tags.artist || 'Artista Desconocido'; 
-                    songTitle.textContent = title;
-                    artistName.textContent = artist; // Mostramos el string completo
-                    if (headerSongTitle) headerSongTitle.textContent = title; 
-                    if (footerSongTitle) footerSongTitle.textContent = title; // <-- FOOTER
-                    
-                    // ===== INICIO LÓGICA DE LETRAS (MODIFICADO) =====
-                    if (lrcFile) {
-                        // 1. Si se encontró .lrc local, usarlo.
-                        loadLyrics(lrcFile); // <-- Ya actualiza el footer
-                    } else {
-                        // 2. Si no, buscar en internet (pasando el trackIndex actual)
-                        // fetchLyrics limpiará el string "artist"
-                        fetchLyrics(artist, title, currentTrackIndex); // <-- Ya actualiza el footer
-                    }
-                    // ===== FIN LÓGICA DE LETRAS =====
-                    
-                    if (tags.picture) {
-                        const picture = tags.picture;
-                        let base64String = btoa(picture.data.map(c => String.fromCharCode(c)).join(''));
-                        const format = picture.format || 'image/png';
-                        const dataUrl = `url(data:${format};base64,${base64String})`;
-                        albumArtContainer.style.backgroundImage = dataUrl;
-                        albumIcon.style.display = 'none';
-                        albumArtUrl = `data:${format};base64,${base64String}`;
-                        
-                        if (isDynamicThemeActive) {
-                            extractAndApplyDynamicTheme(albumArtUrl);
+            // INTENTAR LEER METADATOS DESDE LA URL (jsmediatags)
+            if (window.jsmediatags) {
+                
+                // 2. Definimos el proxy
+                const proxyUrl = 'https://corsproxy.io/?';
+
+                // 3. Creamos la URL para jsmediatags, pasándola a través del proxy.
+                // Ya no necesitamos el truco '?nocache'.
+                const metadataUrl = `${proxyUrl}${encodeURIComponent(track.url)}`;
+                // NOTA: Algunas implementaciones de proxy no necesitan encodeURIComponent,
+                // si esta falla, la quitamos. Pero `corsproxy.io` lo prefiere.
+                //
+                // CORRECCIÓN: corsproxy.io NO necesita encodeURIComponent.
+                // Simplemente se anexa: 'https://corsproxy.io/?URL_COMPLETA'
+                const metadataUrl_corrected = `${proxyUrl}${track.url}`;
+
+
+                // 4. Usamos la URL del proxy en jsmediatags
+                window.jsmediatags.read(metadataUrl_corrected, { // <-- ¡AQUÍ ESTÁ LA CORRECCIÓN!
+                    onSuccess: function(tag) {
+            // =======================================================
+            // ===== FIN DE LA CORRECCIÓN DE CORS (PROXY CORS) ======
+            // =======================================================
+                        const tags = tag.tags;
+                        const title = tags.title || basicTitle;
+                        const artist = tags.artist || 'Artista Desconocido'; 
+                        songTitle.textContent = title;
+                        artistName.textContent = artist;
+                        if (headerSongTitle) headerSongTitle.textContent = title; 
+                        if (footerSongTitle) footerSongTitle.textContent = title;
+
+                        // Re-buscar letras si encontramos un artista/título mejor
+                        if (artist !== 'Artista Desconocido' || title !== basicTitle) {
+                            fetchLyrics(artist, title, currentTrackIndex);
                         }
                         
-                    } else {
+                        if (tags.picture) {
+                            const picture = tags.picture;
+                            let base64String = btoa(picture.data.map(c => String.fromCharCode(c)).join(''));
+                            const format = picture.format || 'image/png';
+                            const dataUrl = `url(data:${format};base64,${base64String})`;
+                            albumArtContainer.style.backgroundImage = dataUrl;
+                            albumIcon.style.display = 'none';
+                            albumArtUrl = `data:${format};base64,${base64String}`;
+                            
+                            // ¡AQUÍ SE ACTIVA EL TEMA DINÁMICO!
+                            if (isDynamicThemeActive) {
+                                extractAndApplyDynamicTheme(albumArtUrl);
+                            }
+                            
+                        } else {
+                            albumIcon.style.display = 'block';
+                            if (isDynamicThemeActive) {
+                                const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
+                                applyThemeVariables(themes[savedThemeName], savedThemeName);
+                            }
+                        }
+                        updateMediaSession(title, artist, albumArtUrl);
+                        
+                        if (isHost && currentRoomId) {
+                            sendFullSyncState(); 
+                            if (autoPlay) startSyncInterval();
+                            else stopSyncInterval();
+                        }
+                    },
+                    onError: function(error) {
+                        // Fallback si jsmediatags falla (incluso con el proxy)
+                        console.warn("Error al leer metadata online (con proxy):", error);
+                        artistName.textContent = 'Artista Desconocido';
                         albumIcon.style.display = 'block';
+                        updateMediaSession(basicTitle, 'Artista Desconocido', albumArtUrl);
+                        
                         if (isDynamicThemeActive) {
                             const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
                             applyThemeVariables(themes[savedThemeName], savedThemeName);
                         }
+                        
+                        if (isHost && currentRoomId) {
+                            sendFullSyncState();
+                            if (autoPlay) startSyncInterval();
+                            else stopSyncInterval();
+                        }
                     }
-                    updateMediaSession(title, artist, albumArtUrl);
-                    
-                    // ===== INICIO SYNC (AÑADIDO) =====
-                    if (isHost && currentRoomId) {
-                        sendFullSyncState(); // Envía el estado con la nueva canción
-                        if (autoPlay) startSyncInterval();
-                        else stopSyncInterval();
-                    }
-                    // ===== FIN SYNC =====
-                },
-                onError: function(error) {
-                    const title = track.name.replace(/\.[^/.]+$/, "");
-                    const artist = 'Artista Desconocido (Metadata no encontrada)';
-                    songTitle.textContent = title;
-                    artistName.textContent = artist;
-                    if (headerSongTitle) headerSongTitle.textContent = title; 
-                    if (footerSongTitle) footerSongTitle.textContent = title; // <-- FOOTER
-                    albumIcon.style.display = 'block';
-                    
-                    // ===== INICIO LÓGICA DE LETRAS (MODIFICADO) =====
-                    if (lrcFile) {
-                        // 1. Si se encontró .lrc local, usarlo.
-                        loadLyrics(lrcFile); // <-- Ya actualiza el footer
-                    } else {
-                        // 2. Si no, buscar en internet (pasando el trackIndex actual)
-                        fetchLyrics(artist, title, currentTrackIndex); // <-- Ya actualiza el footer
-                    }
-                    // ===== FIN LÓGICA DE LETRAS =====
-                    
-                    updateMediaSession(title, artist, albumArtUrl);
-                    
-                    if (isDynamicThemeActive) {
-                        const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
-                        applyThemeVariables(themes[savedThemeName], savedThemeName);
-                    }
-                    
-                    // ===== INICIO SYNC (AÑADIDO) =====
-                    if (isHost && currentRoomId) {
-                        sendFullSyncState();
-                        if (autoPlay) startSyncInterval();
-                        else stopSyncInterval();
-                    }
-                    // ===== FIN SYNC =====
-                }
-            });
-        } else {
-            const title = track.name.replace(/\.[^/.]+$/, "");
-            songTitle.textContent = title;
-            artistName.textContent = 'Librería ID3 no cargada';
-            if (headerSongTitle) headerSongTitle.textContent = title; 
-            if (footerSongTitle) footerSongTitle.textContent = title; // <-- FOOTER
-
-            // ===== INICIO LÓGICA DE LETRAS (MODIFICADO) =====
-            if (lrcFile) {
-                loadLyrics(lrcFile); // <-- Ya actualiza el footer
+                });
             } else {
-                fetchLyrics("Artista Desconocido", title, currentTrackIndex); // <-- Ya actualiza el footer
+                // Fallback si jsmediatags NO ESTÁ CARGADO
+                artistName.textContent = 'Online (ID3 no cargado)';
+                updateMediaSession(basicTitle, 'Online (ID3 no cargado)', albumArtUrl);
+                if (isDynamicThemeActive) {
+                     const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
+                     applyThemeVariables(themes[savedThemeName], savedThemeName);
+                }
+                if (isHost && currentRoomId) {
+                    sendFullSyncState();
+                    if (autoPlay) startSyncInterval();
+                    else stopSyncInterval();
+                }
             }
-            // ===== FIN LÓGICA DE LETRAS =====
-            
-            updateMediaSession(title, 'Librería ID3 no cargada', albumArtUrl);
-            
-            if (isDynamicThemeActive) {
-                const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
-                applyThemeVariables(themes[savedThemeName], savedThemeName);
+            // --- FIN DE MODIFICACIÓN (Arreglo de metadatos online) ---
+
+        // --- CASO 2: CANCIÓN LOCAL (Archivo/File) ---
+        } else {
+            if (audioPlayer.src && audioPlayer.src.startsWith('blob:')) {
+                 URL.revokeObjectURL(audioPlayer.src);
             }
             
-            // ===== INICIO SYNC (AÑADIDO) =====
-            // Fallback para cuando jsmediatags no carga
-            if (isHost && currentRoomId) {
-                sendFullSyncState();
-                if (autoPlay) startSyncInterval();
-                else stopSyncInterval();
+            const objectURL = URL.createObjectURL(track);
+            audioPlayer.src = objectURL;
+            
+            songTitle.textContent = 'Cargando metadatos...';
+            artistName.textContent = '';
+            if (headerSongTitle) headerSongTitle.textContent = 'Cargando...'; 
+            if (footerSongTitle) footerSongTitle.textContent = 'Cargando...'; // <-- FOOTER
+            albumArtContainer.style.backgroundImage = 'none';
+            albumIcon.style.display = 'block';
+
+            // BUSCAR LETRAS LOCALES (.lrc)
+            // Obtener nombre base (ej. "Mi Cancion")
+            const baseName = track.name.replace(/\.[^/.]+$/, "");
+            const lrcFile = lrcMap.get(baseName); // Buscar en el mapa
+            
+            // [LÓGICA DE JSMEDIATAGS (SIN CAMBIOS)]
+            if (window.jsmediatags) {
+                window.jsmediatags.read(track, {
+                    onSuccess: function(tag) {
+                        const tags = tag.tags;
+                        const title = tags.title || track.name.replace(/\.[^/.]+$/, "");
+                        // AQUÍ es donde artist puede ser "Artista 1;Artista 2"
+                        const artist = tags.artist || 'Artista Desconocido'; 
+                        songTitle.textContent = title;
+                        artistName.textContent = artist; // Mostramos el string completo
+                        if (headerSongTitle) headerSongTitle.textContent = title; 
+                        if (footerSongTitle) footerSongTitle.textContent = title; // <-- FOOTER
+                        
+                        // ===== INICIO LÓGICA DE LETRAS (MODIFICADO) =====
+                        if (lrcFile) {
+                            // 1. Si se encontró .lrc local, usarlo.
+                            loadLyrics(lrcFile); // <-- Ya actualiza el footer
+                        } else {
+                            // 2. Si no, buscar en internet (pasando el trackIndex actual)
+                            // fetchLyrics limpiará el string "artist"
+                            fetchLyrics(artist, title, currentTrackIndex); // <-- Ya actualiza el footer
+                        }
+                        // ===== FIN LÓGICA DE LETRAS =====
+                        
+                        if (tags.picture) {
+                            const picture = tags.picture;
+                            let base64String = btoa(picture.data.map(c => String.fromCharCode(c)).join(''));
+                            const format = picture.format || 'image/png';
+                            const dataUrl = `url(data:${format};base64,${base64String})`;
+                            albumArtContainer.style.backgroundImage = dataUrl;
+                            albumIcon.style.display = 'none';
+                            albumArtUrl = `data:${format};base64,${base64String}`;
+                            
+                            if (isDynamicThemeActive) {
+                                extractAndApplyDynamicTheme(albumArtUrl);
+                            }
+                            
+                        } else {
+                            albumIcon.style.display = 'block';
+                            if (isDynamicThemeActive) {
+                                const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
+                                applyThemeVariables(themes[savedThemeName], savedThemeName);
+                            }
+                        }
+                        updateMediaSession(title, artist, albumArtUrl);
+                        
+                        // ===== INICIO SYNC (AÑADIDO) =====
+                        if (isHost && currentRoomId) {
+                            sendFullSyncState(); // Envía el estado con la nueva canción
+                            if (autoPlay) startSyncInterval();
+                            else stopSyncInterval();
+                        }
+                        // ===== FIN SYNC =====
+                    },
+                    onError: function(error) {
+                        const title = track.name.replace(/\.[^/.]+$/, "");
+                        const artist = 'Artista Desconocido (Metadata no encontrada)';
+                        songTitle.textContent = title;
+                        artistName.textContent = artist;
+                        if (headerSongTitle) headerSongTitle.textContent = title; 
+                        if (footerSongTitle) footerSongTitle.textContent = title; // <-- FOOTER
+                        albumIcon.style.display = 'block';
+                        
+                        // ===== INICIO LÓGICA DE LETRAS (MODIFICADO) =====
+                        if (lrcFile) {
+                            // 1. Si se encontró .lrc local, usarlo.
+                            loadLyrics(lrcFile); // <-- Ya actualiza el footer
+                        } else {
+                            // 2. Si no, buscar en internet (pasando el trackIndex actual)
+                            fetchLyrics(artist, title, currentTrackIndex); // <-- Ya actualiza el footer
+                        }
+                        // ===== FIN LÓGICA DE LETRAS =====
+                        
+                        updateMediaSession(title, artist, albumArtUrl);
+                        
+                        if (isDynamicThemeActive) {
+                            const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
+                            applyThemeVariables(themes[savedThemeName], savedThemeName);
+                        }
+                        
+                        // ===== INICIO SYNC (AÑADIDO) =====
+                        if (isHost && currentRoomId) {
+                            sendFullSyncState();
+                            if (autoPlay) startSyncInterval();
+                            else stopSyncInterval();
+                        }
+                        // ===== FIN SYNC =====
+                    }
+                });
+            } else {
+                const title = track.name.replace(/\.[^/.]+$/, "");
+                songTitle.textContent = title;
+                artistName.textContent = 'Librería ID3 no cargada';
+                if (headerSongTitle) headerSongTitle.textContent = title; 
+                if (footerSongTitle) footerSongTitle.textContent = title; // <-- FOOTER
+
+                // ===== INICIO LÓGICA DE LETRAS (MODIFICADO) =====
+                if (lrcFile) {
+                    loadLyrics(lrcFile); // <-- Ya actualiza el footer
+                } else {
+                    fetchLyrics("Artista Desconocido", title, currentTrackIndex); // <-- Ya actualiza el footer
+                }
+                // ===== FIN LÓGICA DE LETRAS =====
+                
+                updateMediaSession(title, 'Librería ID3 no cargada', albumArtUrl);
+                
+                if (isDynamicThemeActive) {
+                    const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
+                    applyThemeVariables(themes[savedThemeName], savedThemeName);
+                }
+                
+                // ===== INICIO SYNC (AÑADIDO) =====
+                // Fallback para cuando jsmediatags no carga
+                if (isHost && currentRoomId) {
+                    sendFullSyncState();
+                    if (autoPlay) startSyncInterval();
+                    else stopSyncInterval();
+                }
+                // ===== FIN SYNC =====
             }
-            // ===== FIN SYNC =====
         }
+        // ===== FIN DE CÓDIGO MODIFICADO (Online vs Local) =====
 
         updatePlaylistUI();
 
@@ -951,8 +1106,10 @@ function initAudioContext() {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             analyser = audioContext.createAnalyser();
             
-            // Crear la fuente y guardarla
-            audioSource = audioContext.createMediaElementSource(audioPlayer); 
+            // Solo crear una nueva fuente si no existe
+            if (!audioSource) {
+                audioSource = audioContext.createMediaElementSource(audioPlayer);
+            }
             
             // ===== INICIO CONFIGURACIÓN EQ (AÑADIDO) =====
             setupEQ(); // Crea las bandas de EQ
@@ -1595,6 +1752,126 @@ function extractAndApplyDynamicTheme(imageUrl) {
 // H. INICIALIZACIÓN (ACTUALIZADO)
 // ====================================================================
 
+// ===== INICIO DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
+
+// ===== INICIO DE MODIFICACIÓN (Petición del usuario) =====
+/**
+ * (MODIFICADO) Almacena la lista de *playlists* del repositorio de GitHub.
+ */
+async function fetchAllOnlinePlaylists() { // <<-- CAMBIADO
+    if (searchStatus) searchStatus.style.display = 'inline-block';
+    if (searchResultsList) searchResultsList.innerHTML = '<li class="empty-message">Cargando playlists online...</li>';
+    try {
+        // Carga el nuevo archivo playlists.json
+        const response = await fetch(`${GITHUB_REPO_URL}${ONLINE_SONG_LIST_PATH}`);
+        if (!response.ok) {
+            throw new Error(`No se pudo cargar ${ONLINE_SONG_LIST_PATH}`);
+        }
+        const playlistData = await response.json(); // Esto es un array de objetos
+        
+        if (Array.isArray(playlistData)) {
+            allOnlinePlaylists = playlistData; // Almacenamos los datos de las playlists
+            if (searchResultsList) searchResultsList.innerHTML = '<li class="empty-message">Busca para ver resultados.</li>';
+        } else {
+            throw new Error('El archivo playlists.json no tiene el formato de array esperado.');
+        }
+        
+    } catch (error) {
+        console.error("Error al cargar la lista de playlists online:", error);
+        if (searchResultsList) searchResultsList.innerHTML = `<li class="empty-message">Error al cargar la base de datos.<br>${error.message}</li>`;
+    } finally {
+        if (searchStatus) searchStatus.style.display = 'none';
+    }
+}
+
+/**
+ * (MODIFICADO) Filtra la lista de *playlists* online basándose en el input.
+ */
+function performSearch() {
+    if (!searchInput || !searchResultsList) return;
+    const query = searchInput.value.toLowerCase().trim();
+    if (query.length < 2) {
+        searchResultsList.innerHTML = '<li class="empty-message">Escribe al menos 2 letras.</li>';
+        return;
+    }
+
+    // Busca en la lista de playlists por el nombre
+    const results = allOnlinePlaylists.filter(playlist => 
+        playlist.name.toLowerCase().includes(query)
+    ).slice(0, 50); // Limitar a 50 resultados
+
+    searchResultsList.innerHTML = '';
+    if (results.length === 0) {
+        searchResultsList.innerHTML = '<li class="empty-message">No se encontraron carpetas.</li>';
+        return;
+    }
+
+    results.forEach((playlist, index) => {
+        // Guardar el índice original de la lista COMPLETA
+        const originalIndex = allOnlinePlaylists.findIndex(p => p.name === playlist.name);
+        
+        const li = document.createElement('li');
+        // Mostrar un icono de carpeta
+        li.innerHTML = `<span class="material-icons">folder</span> ${playlist.name}`;
+        li.title = `Reproducir carpeta: ${playlist.name}`;
+        li.dataset.originalIndex = originalIndex; // Clave para cargar la playlist
+        searchResultsList.appendChild(li);
+    });
+}
+
+/**
+ * (MODIFICADO) Se dispara al hacer clic en un resultado de búsqueda (carpeta).
+ * Crea la playlist online desde la carpeta seleccionada y la reproduce.
+ */
+function playOnlinePlaylist(event) { // <<-- CAMBIADO
+    // ===== INICIO SYNC (AÑADIDO) =====
+    if (!isHost && currentRoomId) return; // Bloquear cliente
+    // ===== FIN SYNC =====
+    
+    const targetLi = event.target.closest('li');
+    if (!targetLi || targetLi.classList.contains('empty-message') || targetLi.dataset.originalIndex === undefined) {
+        return;
+    }
+
+    const originalIndex = parseInt(targetLi.dataset.originalIndex, 10);
+    const selectedPlaylist = allOnlinePlaylists[originalIndex]; // Obtiene el objeto {name, folderName, songs}
+
+    if (!selectedPlaylist || !selectedPlaylist.songs || selectedPlaylist.songs.length === 0) {
+        console.error("Carpeta online inválida o vacía");
+        alert("Esta carpeta parece estar vacía o no es válida.");
+        return;
+    }
+
+    // 1. Crear la nueva playlist online
+    // La playlist se construye a partir del array 'songs' de la carpeta seleccionada
+    playlist = selectedPlaylist.songs.map(songFileName => {
+        // Construir la URL completa: URL_Base + NombreCarpeta + NombreArchivo
+        // LA URL BASE YA APUNTA A raw.githubusercontent.com/.../main/
+        const songUrl = `${GITHUB_REPO_URL}${encodeURIComponent(selectedPlaylist.folderName)}/${encodeURIComponent(songFileName)}`;
+        
+        return {
+            name: songFileName.replace(/\.[^/.]+$/, "").replace(/_/g, ' '), // Nombre legible
+            isOnline: true,
+            url: songUrl
+        };
+    });
+
+    // 2. Establecer la fuente de la playlist actual
+    currentPlaylistSource = 'online';
+
+    // 3. Limpiar la playlist local/folder UI
+    if (playlistList) playlistList.innerHTML = '<li class="empty-message">Reproduciendo desde GitHub...</li>';
+    if (foldersList) foldersList.innerHTML = '<li class="empty-message">Carga local deshabilitada.</li>';
+
+    // 4. Cargar la PRIMERA canción (índice 0) de esta *nueva* playlist
+    initAudioContext();
+    loadTrack(0, true);
+}
+// ===== FIN DE MODIFICACIÓN (Petición del usuario) =====
+
+// ===== FIN DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
+
+
 document.addEventListener('DOMContentLoaded', () => {
 
     // ===== INICIO: DETECCIÓN MÓVIL (AÑADIDO) =====
@@ -1690,13 +1967,20 @@ document.addEventListener('DOMContentLoaded', () => {
     footerMostPlayed = document.getElementById('footer-most-played');
     // ===== FIN ASIGNACIÓN FOOTER (AÑADIDO) =====
 
-    // ===== INICIO ASIGNACIÓN RAVE SYNC (AÑADIDO) =====
+    // ===== INICIO ASIGNACIÓN RAVE SYNC (MODIFICADO) =====
     createRoomBtn = document.getElementById('create-room-btn');
     joinRoomBtn = document.getElementById('join-room-btn');
     joinRoomInput = document.getElementById('join-room-input');
     roomCodeDisplay = document.getElementById('room-code-display');
-    syncStatus = document.getElementById('sync-status');
-    // ===== FIN ASIGNACIÓN RAVE SYNC (AÑADIDO) =====
+    syncStatusElement = document.getElementById('sync-status'); // Renombrado
+    // ===== FIN ASIGNACIÓN RAVE SYNC (MODIFICADO) =====
+
+    // ===== INICIO DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
+    searchInput = document.getElementById('search-input');
+    searchBtn = document.getElementById('search-btn');
+    searchResultsList = document.getElementById('search-results-list');
+    searchStatus = document.getElementById('search-status');
+    // ===== FIN DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
 
 
     sensitivityMultiplier = parseFloat(getComputedStyle(root).getPropertyValue('--sensitivity-multiplier'));
@@ -1704,6 +1988,13 @@ document.addEventListener('DOMContentLoaded', () => {
     createDynamicBars(); 
     setupMediaSessionHandlers();
     loadRepeatMode();
+    
+    // ===== INICIO DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
+    // ===== INICIO DE MODIFICACIÓN (Petición del usuario) =====
+    // Cargar la lista de playlists de GitHub al iniciar
+    fetchAllOnlinePlaylists(); // <<-- CAMBIADO
+    // ===== FIN DE MODIFICACIÓN (Petición del usuario) =====
+    // ===== FIN DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
     
     // ===== INICIO: AÑADIR BADGE "LRC" (NUEVO) =====
     if (lyricsPanelHeader) {
@@ -1817,7 +2108,7 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault(); e.stopPropagation();
             foldersPanel.classList.remove('drag-active');
         });
-        // ACTUALIZADO: Limpiar lrcMap al soltar
+        // ACTUALIZADO: Limpiar lrcMap al soltar y setear source
         foldersPanel.addEventListener('drop', (e) => {
             e.preventDefault(); e.stopPropagation();
             foldersPanel.classList.remove('drag-active');
@@ -1826,6 +2117,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 foldersList.innerHTML = '';
                 folderPlaylist = [];
                 lrcMap.clear(); // Limpiar mapa de letras
+                
+                // ===== INICIO DE CÓDIGO MODIFICADO =====
+                currentPlaylistSource = 'folder';
+                if (searchResultsList) searchResultsList.innerHTML = '<li class="empty-message">Busca para ver resultados.</li>';
+                // ===== FIN DE CÓDIGO MODIFICADO =====
+
                 for (let i = 0; i < items.length; i++) {
                     const entry = items[i].webkitGetAsEntry();
                     if (entry) {
@@ -1844,6 +2141,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (targetLi.classList.contains('audio-item') && targetLi.dataset.folderIndex !== undefined) {
                 const indexToPlay = parseInt(targetLi.dataset.folderIndex, 10);
                 playlist = folderPlaylist; // Usar la playlist de carpetas
+                
+                // ===== INICIO DE CÓDIGO MODIFICADO =====
+                currentPlaylistSource = 'folder'; // Setear la fuente
+                // ===== FIN DE CÓDIGO MODIFICADO =====
+
                 initAudioContext();
                 loadTrack(indexToPlay, true);
             } else if (targetLi.classList.contains('folder-item')) {
@@ -1869,6 +2171,11 @@ document.addEventListener('DOMContentLoaded', () => {
             foldersList.innerHTML = '';
             folderPlaylist = [];
             lrcMap.clear();
+
+            // ===== INICIO DE CÓDIGO MODIFICADO =====
+            currentPlaylistSource = 'folder';
+            if (searchResultsList) searchResultsList.innerHTML = '<li class="empty-message">Busca para ver resultados.</li>';
+            // ===== FIN DE CÓDIGO MODIFICADO =====
 
             const fileTree = {}; // Objeto para construir el árbol
 
@@ -2075,10 +2382,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // ===== FIN LISTENERS RAVE SYNC (MODIFICADO) =====
 
+    // ===== INICIO DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
+    if (searchBtn) {
+        searchBtn.addEventListener('click', performSearch);
+    }
+    if (searchInput) {
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+    }
+    // ===== INICIO DE MODIFICACIÓN (Petición del usuario) =====
+    if (searchResultsList) {
+        searchResultsList.addEventListener('click', playOnlinePlaylist); // <<-- CAMBIADO
+    }
+    // ===== FIN DE MODIFICACIÓN (Petición del usuario) =====
+    // ===== FIN DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
+
 
     // Listeners de Audio (ACTUALIZADO)
     
-    // ACTUALIZADO: Manejar audio y lrc
+    // ACTUALIZADO: Manejar audio y lrc, y setear source
     fileInput.addEventListener('change', (event) => {
         lrcMap.clear(); // Limpiar mapa de letras
         const files = Array.from(event.target.files);
@@ -2095,6 +2420,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         playlist = audioFiles; // Establecer playlist global
         
+        // ===== INICIO DE CÓDIGO MODIFICADO =====
+        currentPlaylistSource = 'local'; // Setear la fuente
+        if (searchResultsList) searchResultsList.innerHTML = '<li class="empty-message">Busca para ver resultados.</li>';
+        // ===== FIN DE CÓDIGO MODIFICADO =====
+
         if (playlist.length > 0) {
             initAudioContext();
             loadTrack(0, true);
@@ -2106,6 +2436,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isHost && currentRoomId) return; // Bloquear cliente
         // ===== FIN SYNC =====
         
+        // ===== INICIO DE CÓDIGO MODIFICADO =====
+        // Si la playlist es online, esta UI no debería hacer nada
+        if (currentPlaylistSource === 'online') return;
+        // ===== FIN DE CÓDIGO MODIFICADO =====
+
         const li = event.target.closest('li');
         if (li && li.dataset.index && !li.classList.contains('empty-message')) {
             const index = parseInt(li.dataset.index);
@@ -2126,7 +2461,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // ===== FIN SYNC =====
         
         if (playlist.length === 0) {
-            alert("Por favor, selecciona archivos de música (MP3/WAV) primero.");
+            alert("Por favor, selecciona archivos de música (MP3/WAV) o busca online.");
             return;
         }
         if (audioPlayer.paused) {
@@ -2318,7 +2653,10 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // DRAG AND DROP (ACTUALIZADO)
     let draggingCard = null;
-    cards.forEach(card => {
+    // ===== INICIO DE CÓDIGO MODIFICADO (Añadir .search-panel) =====
+    const draggableCards = document.querySelectorAll('.player-card, .playlist-panel, .color-selector, .lyrics-panel');
+    draggableCards.forEach(card => {
+    // ===== FIN DE CÓDIGO MODIFICADO =====
         card.addEventListener('dragstart', (e) => {
             draggingCard = card;
             setTimeout(() => card.classList.add('dragging'), 0);
@@ -2346,9 +2684,11 @@ document.addEventListener('DOMContentLoaded', () => {
         card.addEventListener('dragleave', () => {});
     });
 
-    // ACTUALIZADO: Incluir .lyrics-panel en el querySelectorAll
+    // ACTUALIZADO: Incluir .lyrics-panel y .search-panel en el querySelectorAll
     function getDragAfterElement(container, x) {
+        // ===== INICIO DE CÓDIGO MODIFICADO (Añadir .search-panel) =====
         const draggableCards = [...container.querySelectorAll('.player-card:not(.dragging), .playlist-panel:not(.dragging), .color-selector:not(.dragging), .lyrics-panel:not(.dragging)')];
+        // ===== FIN DE CÓDIGO MODIFICADO =====
         return draggableCards.reduce((closest, child) => {
             const box = child.getBoundingClientRect();
             const offset = x - box.left - box.width / 2; 
@@ -2410,6 +2750,21 @@ function setClientMode(isClient) {
         foldersList.style.pointerEvents = isClient ? 'none' : 'auto';
         foldersList.style.opacity = isClient ? 0.7 : 1;
     }
+
+    // ===== INICIO DE CÓDIGO AÑADIDO (Deshabilitar Búsqueda) =====
+    if (searchResultsList) {
+        searchResultsList.style.pointerEvents = isClient ? 'none' : 'auto';
+        searchResultsList.style.opacity = isClient ? 0.7 : 1;
+    }
+    if (searchBtn) {
+        searchBtn.disabled = isClient;
+        searchBtn.title = clientMessage;
+    }
+    if (searchInput) {
+        searchInput.disabled = isClient;
+        searchInput.placeholder = isClient ? "Controles deshabilitados" : "Buscar canción por nombre...";
+    }
+    // ===== FIN DE CÓDIGO AÑADIDO =====
 }
 
 /**
@@ -2427,6 +2782,7 @@ function sendToRoom(payload) {
 
 /**
  * (HOST) Envía el estado completo de reproducción a la sala.
+ * ===== ESTA ES LA FUNCIÓN MODIFICADA (V3 - Online Sync) =====
  */
 function sendFullSyncState() {
     if (!isHost || !currentRoomId || currentTrackIndex < 0) return;
@@ -2434,16 +2790,24 @@ function sendFullSyncState() {
     const currentTrack = playlist[currentTrackIndex];
     if (!currentTrack) return;
     
-    const state = {
+    let state = {
         type: 'full-sync',
         trackIndex: currentTrackIndex,
         currentTime: audioPlayer.currentTime,
         isPlaying: !audioPlayer.paused,
-        // Envía el nombre del archivo para una verificación básica
-        trackName: currentTrack.name 
+        trackName: currentTrack.name, // Ya sea local o online, .name existe
+        source: currentPlaylistSource // <-- NUEVO ('local', 'folder', 'online')
     };
+
+    // Si la fuente es 'online', debemos enviar la playlist completa (lista de URLs)
+    if (currentPlaylistSource === 'online') {
+        // 'playlist' es un array de {name, url, isOnline}
+        state.onlinePlaylistUrls = playlist.map(track => track.url);
+    }
+    
     sendToRoom(state);
 }
+
 
 /**
  * (HOST) Inicia el intervalo de sincronización.
@@ -2466,42 +2830,92 @@ function stopSyncInterval() {
 
 /**
  * (CLIENTE) Maneja un mensaje de 'full-sync' entrante del host.
- * ===== ESTA ES LA FUNCIÓN CORREGIDA (V2) =====
+ * ===== ESTA ES LA FUNCIÓN MODIFICADA (V3 - Online Sync) =====
  */
 function handleSyncState(payload) {
     if (isHost) return; // El host no debe escucharse a sí mismo
 
-    const { trackIndex, currentTime, isPlaying, trackName } = payload;
+    // Desestructurar el payload COMPLETO
+    const { 
+        trackIndex, 
+        currentTime, 
+        isPlaying, 
+        trackName, 
+        source, // <-- NUEVO
+        onlinePlaylistUrls // <-- NUEVO (puede ser undefined)
+    } = payload;
+
+
+    // ===== INICIO: RECONSTRUCCIÓN DE PLAYLIST (NUEVO) =====
+    
+    // Si el Host está online, el Cliente DEBE estar online.
+    if (source === 'online') {
+        if (!onlinePlaylistUrls || onlinePlaylistUrls.length === 0) {
+            console.warn("Sync: El Host está online pero no envió la playlist.");
+            return;
+        }
+        
+        // Comprobar si la playlist local ya es la correcta
+        // (Comprobando la URL de la primera canción)
+        const firstTrackUrl = (playlist[0] && playlist[0].isOnline) ? playlist[0].url : null;
+        
+        if (firstTrackUrl !== onlinePlaylistUrls[0]) {
+            console.log("Sync: Reconstruyendo playlist online del Host...");
+            // RECONSTRUIR la playlist global del cliente
+            playlist = onlinePlaylistUrls.map(url => ({
+                // Decodificar el nombre de la URL (ej. "04%20-%20Shape%20of%20You.mp3" -> "04 - Shape of You.mp3")
+                name: decodeURIComponent(url.split('/').pop()).replace(/\.[^/.]+$/, "").replace(/_/g, ' '),
+                isOnline: true,
+                url: url
+            }));
+            
+            // Actualizar la UI para reflejar que estamos en modo online
+            currentPlaylistSource = 'online';
+            if (playlistList) playlistList.innerHTML = '<li class="empty-message">Sincronizado (Online)...</li>';
+            if (foldersList) foldersList.innerHTML = '<li class="empty-message">Carga local deshabilitada.</li>';
+            updatePlaylistUI(); // Actualizar la lista de reproducción
+        }
+    
+    // Si el Host está local, el Cliente DEBE estar local.
+    } else { // source === 'local' or 'folder'
+        if (currentPlaylistSource === 'online') {
+            console.warn("Sync: Desincronizado. Host está en modo Local, pero tú estás en Online.");
+            if (syncStatusElement) syncStatusElement.textContent = `Error: Host está en Local. Recarga tus archivos locales.`;
+            // Detener la lógica de sincronización aquí
+            return;
+        }
+        // Si ambos están en 'local' o 'folder', la lógica continúa.
+        currentPlaylistSource = source; 
+    }
+    // ===== FIN: RECONSTRUCCIÓN DE PLAYLIST =====
+
 
     // Verificación de seguridad (igual que antes)
     const localTrack = playlist[trackIndex];
     if (!localTrack) {
         console.warn(`Sync: El Host está en trackIndex ${trackIndex}, pero no lo tenemos.`);
-        if (syncStatus) syncStatus.textContent = `Error: Desincronizado (Falta Track ${trackIndex+1})`;
+        if (syncStatusElement) syncStatusElement.textContent = `Error: Desincronizado (Falta Track ${trackIndex+1})`;
         return;
     }
     
+    // Comparar por nombre
+    // NOTA: 'trackName' del payload es el .name legible (ej: "04 - Shape of You")
+    // 'localTrack.name' también es el .name legible. Esto debería coincidir.
     if (localTrack.name !== trackName) {
         console.warn(`Sync: Desajuste de nombres. Host: ${trackName}, Local: ${localTrack.name}`);
-        if (syncStatus) syncStatus.textContent = `Alerta: ¿Listas diferentes?`;
+        if (syncStatusElement) syncStatusElement.textContent = `Alerta: ¿Listas diferentes?`;
     }
 
-    // ===== INICIO DE LA CORRECCIÓN DE LÓGICA (V2) =====
+    // ===== INICIO DE LA CORRECCIÓN DE LÓGICA (V2 - Sin cambios) =====
 
     /**
      * Esta función aplica el estado del Host (tiempo y play/pause).
-     * Se llamará inmediatamente si la canción ya está cargada,
-     * o DESPUÉS de que cargue si es una canción nueva.
-     * @param {boolean} isNewTrack - True si la canción acaba de ser cargada.
      */
     const applyState = (isNewTrack = false) => {
         
         // 1. Sincronizar tiempo
         const timeDifference = Math.abs(audioPlayer.currentTime - currentTime);
         
-        // Si es una canción nueva, SIEMPRE buscar (seek) al tiempo del Host.
-        // Si es la misma canción, solo buscar si la diferencia es > 1.5s 
-        // (para evitar saltos "nerviosos" por lag de red menor a 1s).
         if (isNewTrack || timeDifference > 1.5) {
             console.log(`Sync: Ajustando tiempo (Host: ${currentTime}, Local: ${audioPlayer.currentTime})`);
             audioPlayer.currentTime = currentTime;
@@ -2509,11 +2923,9 @@ function handleSyncState(payload) {
 
         // 2. Sincronizar estado de reproducción
         if (isPlaying && audioPlayer.paused) {
-            // initAudioContext() ya DEBERÍA haber sido llamado por el clic en "Unirse".
-            // Si falla aquí, es porque el usuario no hizo clic.
             audioPlayer.play().catch(e => {
                 console.warn("Sync: El navegador bloqueó el auto-play. El usuario debe hacer clic.");
-                if (syncStatus) syncStatus.textContent = "¡Haz clic para iniciar el audio!";
+                if (syncStatusElement) syncStatusElement.textContent = "¡Haz clic para iniciar el audio!";
             });
         } else if (!isPlaying && !audioPlayer.paused) {
             audioPlayer.pause();
@@ -2523,20 +2935,13 @@ function handleSyncState(payload) {
     // DECISIÓN: ¿Es una canción nueva o solo un update de tiempo?
     if (currentTrackIndex !== trackIndex) {
         // --- CASO 1: Es una canción NUEVA ---
-        // NO aplicar estado aún. Debemos esperar a que la canción cargue.
         
         const onTrackLoaded = () => {
             console.log("Sync: Nueva canción cargada por el Host. Aplicando estado.");
-            // Ahora que la canción está lista (metadata cargada), aplicamos el estado.
-            // Ponemos isNewTrack = true para FORZAR la búsqueda (seek) al tiempo correcto.
             applyState(true); 
-            
-            // Limpiar este listener temporal para que no se ejecute de nuevo.
             audioPlayer.removeEventListener('loadedmetadata', onTrackLoaded);
         };
         
-        // Añadimos un listener temporal que se disparará UNA SOLA VEZ
-        // cuando 'loadTrack' termine de cargar la metadata.
         audioPlayer.addEventListener('loadedmetadata', onTrackLoaded);
         
         // Iniciar la carga de la canción (sin autoPlay)
@@ -2544,14 +2949,12 @@ function handleSyncState(payload) {
         
     } else {
         // --- CASO 2: Es la MISMA canción ---
-        // (Es solo una actualización de tiempo o un evento de play/pause).
-        // Es seguro aplicar el estado inmediatamente.
         applyState(false);
     }
     
     // ===== FIN DE LA CORRECCIÓN DE LÓGICA (V2) =====
 
-    if (syncStatus) syncStatus.textContent = `Sincronizado (Host) - ${isPlaying ? "Play" : "Pausa"}`;
+    if (syncStatusElement) syncStatusElement.textContent = `Sincronizado (Host) - ${isPlaying ? "Play" : "Pausa"}`;
 }
 
 // =========================================================================
@@ -2561,8 +2964,7 @@ function handleSyncState(payload) {
 /**
  * Maneja los mensajes entrantes del servidor WebSocket.
  * * CORRECCIÓN: Se reemplaza el chequeo 'instanceof Blob' por 'typeof message.data !== "string"' 
- * para manejar de forma robusta los objetos binarios (Blobs/ArrayBuffers) que 
- * contienen los mensajes relevados, evitando el error de JSON.parse("[object Blob]").
+ * ===== MODIFICADO (V3 - Alerta de 'room-joined') =====
  */
 function handleServerMessage(message) {
     
@@ -2579,7 +2981,7 @@ function handleServerMessage(message) {
             case 'room-created':
                 currentRoomId = data.roomId;
                 if (roomCodeDisplay) roomCodeDisplay.value = currentRoomId;
-                if (syncStatus) syncStatus.textContent = 'Sala creada. ¡Comparte el código!';
+                if (syncStatusElement) syncStatusElement.textContent = 'Sala creada. ¡Comparte el código!';
                 setClientMode(false); // Es Host
                 if (createRoomBtn) createRoomBtn.disabled = true;
                 if (joinRoomBtn) joinRoomBtn.disabled = true;
@@ -2588,34 +2990,41 @@ function handleServerMessage(message) {
             case 'room-joined':
                 currentRoomId = data.roomId;
                 if (roomCodeDisplay) roomCodeDisplay.value = currentRoomId;
-                if (syncStatus) syncStatus.textContent = 'Unido a la sala. Esperando al Host...';
+                if (syncStatusElement) syncStatusElement.textContent = 'Unido a la sala. Esperando al Host...';
                 if (joinRoomInput) joinRoomInput.value = '';
                 setClientMode(true); // Es Cliente
                 if (createRoomBtn) createRoomBtn.disabled = true;
                 if (joinRoomBtn) joinRoomBtn.disabled = true;
-                alert(`¡Te has unido a la sala ${currentRoomId}!\n\nIMPORTANTE:\nAsegúrate de tener la MISMA playlist cargada que el Host, en el MISMO orden.`);
+                
+                // --- ALERTA MODIFICADA ---
+                alert(`¡Te has unido a la sala ${currentRoomId}!\n\nSincronizando con el Host...
+                \n- Si el Host usa música LOCAL, asegúrate de cargar la MISMA playlist.
+                \n- Si el Host usa música ONLINE, se cargará automáticamente.`);
                 break;
                 
             case 'client-joined':
                 // (HOST) Alguien se unió.
-                if (syncStatus) syncStatus.textContent = '¡Alguien se unió!';
+                if (syncStatusElement) syncStatusElement.textContent = '¡Alguien se unió!';
                 console.log("Sync: Cliente unido. Enviando estado actual...");
-                sendFullSyncState(); // Enviar el estado actual al nuevo cliente
+                // Solo enviar estado si ya hay una playlist cargada
+                if (playlist.length > 0) {
+                    sendFullSyncState(); 
+                }
                 break;
                 
             case 'client-left':
-                if (syncStatus) syncStatus.textContent = 'Alguien se fue.';
+                if (syncStatusElement) syncStatusElement.textContent = 'Alguien se fue.';
                 break;
                 
             case 'error':
                 console.error('Sync Error:', data.message);
                 alert(`Error del servidor: ${data.message}`);
-                if (syncStatus) syncStatus.textContent = `Error: ${data.message}`;
+                if (syncStatusElement) syncStatusElement.textContent = `Error: ${data.message}`;
                 break;
         }
     };
 
-    // --- Lógica principal de manejo de mensajes ---
+    // --- Lógica principal de manejo de mensajes (Sin cambios) ---
     
     // Si no es una cadena (ej. Blob o ArrayBuffer), debe ser leído asíncronamente.
     if (typeof message.data !== 'string') {
@@ -2665,6 +3074,7 @@ function handleServerMessage(message) {
 
 /**
  * Inicia la conexión con el servidor de señalización.
+ * ===== ESTA ES LA FUNCIÓN MODIFICADA (V3 - Online Sync) =====
  */
 function connectToSyncServer(roomIdToJoin = null) {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
@@ -2672,26 +3082,27 @@ function connectToSyncServer(roomIdToJoin = null) {
         return;
     }
     
-    // ===== INICIO SYNC (AÑADIDO) =====
-    // Requisito: Debe haber una playlist cargada para sincronizar
-    if (playlist.length === 0) {
-        alert("Debes cargar una playlist (archivos de música) ANTES de crear o unirte a una sala.");
-        return;
-    }
-    // ===== FIN SYNC =====
+    // ===== INICIO MODIFICACIÓN (Eliminar chequeo de playlist) =====
+    /* Se elimina el chequeo 'if (playlist.length === 0)'.
+    El cliente que se une a una sala ONLINE no necesita tener 
+    una playlist local. El Host puede crear la sala antes de cargar 
+    su playlist. La lógica de 'handleSyncState' forzará la 
+    playlist correcta en el cliente.
+    */
+    // ===== FIN MODIFICACIÓN =====
 
-    if (syncStatus) syncStatus.textContent = 'Conectando al servidor...';
+    if (syncStatusElement) syncStatusElement.textContent = 'Conectando al servidor...';
     
     try {
         ws = new WebSocket(SYNC_SERVER_URL);
     } catch (e) {
         console.error("Error al crear WebSocket:", e);
-        if (syncStatus) syncStatus.textContent = 'Error: No se pudo conectar.';
+        if (syncStatusElement) syncStatusElement.textContent = 'Error: No se pudo conectar.';
         return;
     }
 
     ws.onopen = () => {
-        if (syncStatus) syncStatus.textContent = 'Conectado. Creando/Uniéndose a sala...';
+        if (syncStatusElement) syncStatusElement.textContent = 'Conectado. Creando/Uniéndose a sala...';
         
         if (isHost) {
             // Crear una sala
@@ -2707,7 +3118,7 @@ function connectToSyncServer(roomIdToJoin = null) {
 
     ws.onclose = () => {
         console.log("Sync: Conexión cerrada.");
-        if (syncStatus) syncStatus.textContent = 'Estado: Desconectado';
+        if (syncStatusElement) syncStatusElement.textContent = 'Estado: Desconectado';
         if (roomCodeDisplay) roomCodeDisplay.value = '';
         stopSyncInterval();
         setClientMode(false); // Habilitar controles de nuevo
@@ -2720,7 +3131,7 @@ function connectToSyncServer(roomIdToJoin = null) {
 
     ws.onerror = (err) => {
         console.error("Sync: Error de WebSocket:", err);
-        if (syncStatus) syncStatus.textContent = 'Error de conexión.';
+        if (syncStatusElement) syncStatusElement.textContent = 'Error de conexión.';
         stopSyncInterval();
         setClientMode(false);
         if (createRoomBtn) createRoomBtn.disabled = false;
