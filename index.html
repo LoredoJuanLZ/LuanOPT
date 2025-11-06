@@ -69,32 +69,28 @@
                 </label>
             </li>
         </ul>
-        
-        <!-- === RAVE / SYNC PANEL (AÑADIDO P2P) === -->
-        <div class="sidebar-header" style="border-top:1px solid var(--border-color); margin-top:10px;">
-            <h3>Rave / Sincronía</h3>
-        </div>
-        <div class="sidebar-list">
-            <div style="margin-bottom:10px;">
-                <button id="create-room-btn" class="custom-file-btn" style="width:100%;">Crear Sala (Generar código)</button>
-            </div>
-            <label style="font-size:0.9em; color:var(--card-text-secondary-color)">Tu código de sala</label>
-            <div style="display:flex; gap:8px; margin-top:6px; margin-bottom:10px;">
-                <input id="my-room-id" readonly style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--border-color); background:transparent; color:var(--card-text-color)">
-                <button id="copy-room-btn" class="sidebar-toggle-btn" title="Copiar código"><span class="material-icons">content_copy</span></button>
-            </div>
 
-            <label for="join-room-input" style="font-size:0.9em; color:var(--card-text-secondary-color)">Unirse a sala</label>
-            <div style="display:flex; gap:8px; margin-top:6px; margin-bottom:8px;">
-                <input id="join-room-input" placeholder="Pegar código (ej. A4B2)" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--border-color); background:transparent; color:var(--card-text-color)">
-                <button id="join-room-btn" class="custom-file-btn">Unirse</button>
-            </div>
-            <p id="rave-status" style="margin-top:6px; font-size:0.85em; color:var(--card-text-secondary-color)">No conectado</p>
-            <small style="display:block; margin-top:6px; color:var(--card-text-secondary-color)">Ambos deben tener la misma canción local para sincronizar.</small>
+        <div class="sidebar-header" style="border-top: 1px solid var(--border-color); margin-top: 10px;">
+            <h3>Rave Sync</h3>
         </div>
-        <!-- === FIN RAVE PANEL === -->
-
-</aside>
+        <ul class="sidebar-list sync-panel">
+            <li>
+                <label for="sync-status" id="sync-status">Estado: Desconectado</label>
+            </li>
+            <li>
+                <button id="create-room-btn" class_="sidebar-button">Crear Sala</button>
+            </li>
+            <li>
+                <input type="text" id="room-code-display" placeholder="CÓDIGO DE SALA" readonly>
+            </li>
+            <li>
+                <input type="text" id="join-room-input" placeholder="Unirse a sala (ej: A4B2)">
+            </li>
+            <li>
+                <button id="join-room-btn" class_="sidebar-button">Unirse</button>
+            </li>
+        </ul>
+        </aside>
     <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
     <header class="header-footer-bar">
