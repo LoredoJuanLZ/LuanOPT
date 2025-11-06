@@ -2554,13 +2554,27 @@ function handleSyncState(payload) {
     if (syncStatus) syncStatus.textContent = `Sincronizado (Host) - ${isPlaying ? "Play" : "Pausa"}`;
 }
 
+// =========================================================================
+// ===== INICIO DE LA SECCIÓN MODIFICADA (CORRECCIÓN BLOB/JSON) =====
+// =========================================================================
+
 /**
  * Maneja los mensajes entrantes del servidor WebSocket.
+ * * CORRECCIÓN: Se reemplaza el chequeo 'instanceof Blob' por 'typeof message.data !== "string"' 
+ * para manejar de forma robusta los objetos binarios (Blobs/ArrayBuffers) que 
+ * contienen los mensajes relevados, evitando el error de JSON.parse("[object Blob]").
  */
-function handleServerMessage(event) {
-    try {
-        const data = JSON.parse(event.data);
-        
+function handleServerMessage(message) {
+    
+    // Función interna para manejar la lógica de los mensajes relevados (sincronización)
+    const handleRelayMessage = (payload) => {
+        if (payload && payload.type === 'full-sync') {
+            handleSyncState(payload);
+        }
+    };
+    
+    // Función interna para manejar las respuestas directas del servidor (crear/unirse a sala, errores)
+    const handleServerResponse = (data) => {
         switch (data.type) {
             case 'room-created':
                 currentRoomId = data.roomId;
@@ -2593,24 +2607,61 @@ function handleServerMessage(event) {
                 if (syncStatus) syncStatus.textContent = 'Alguien se fue.';
                 break;
                 
-            case 'relay-message':
-                // (CLIENTE) Mensaje del Host
-                if (data.payload && data.payload.type === 'full-sync') {
-                    handleSyncState(data.payload);
-                }
-                break;
-                
             case 'error':
                 console.error('Sync Error:', data.message);
                 alert(`Error del servidor: ${data.message}`);
                 if (syncStatus) syncStatus.textContent = `Error: ${data.message}`;
                 break;
         }
+    };
+
+    // --- Lógica principal de manejo de mensajes ---
+    
+    // Si no es una cadena (ej. Blob o ArrayBuffer), debe ser leído asíncronamente.
+    if (typeof message.data !== 'string') {
+        const reader = new FileReader();
+        reader.onload = function() {
+            try {
+                // El resultado (reader.result) ahora es una cadena JSON
+                const data = JSON.parse(reader.result);
+                
+                if (data.type === 'relay-message') {
+                    // Los mensajes de sincronización del Host (que venían como Blob)
+                    handleRelayMessage(data.payload);
+                } else {
+                    // Respuestas directas del servidor (que venían como Blob)
+                    handleServerResponse(data);
+                }
+            } catch (e) {
+                console.error("Error al parsear mensaje del WS (Blob/ArrayBuffer):", e, reader.result); 
+            }
+        };
+        // Leer el objeto binario como texto.
+        reader.readAsText(message.data);
+        return; // Salir de la función, la lógica asíncrona se encargará
+    }
+    
+    // Si es una cadena, intentamos parsear directamente
+    try {
+        const data = JSON.parse(message.data);
         
+        if (data.type === 'relay-message') {
+             // Si el servidor envía el mensaje relevado como string
+             handleRelayMessage(data.payload);
+        } else {
+            // Respuestas directas del servidor (ej. 'room-created' como string)
+            handleServerResponse(data);
+        }
     } catch (e) {
-        console.error('Error al parsear mensaje del WS:', e);
+        // Aquí es donde ocurría tu error original
+        console.error("Error al parsear mensaje del WS (String):", e, message.data);
     }
 }
+
+// =======================================================================
+// ===== FIN DE LA SECCIÓN MODIFICADA (CORRECCIÓN BLOB/JSON) =====
+// =======================================================================
+
 
 /**
  * Inicia la conexión con el servidor de señalización.
@@ -2651,6 +2702,7 @@ function connectToSyncServer(roomIdToJoin = null) {
         }
     };
 
+    // AQUÍ es donde se asigna la función corregida
     ws.onmessage = handleServerMessage;
 
     ws.onclose = () => {
