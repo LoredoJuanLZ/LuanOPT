@@ -155,6 +155,7 @@ let sessionPlayCount = {};
 // ===== FIN VARS FOOTER (AÑADIDO) =====
 
 // ===== INICIO VARS RAVE SYNC (AÑADIDO) =====
+// ¡¡¡ CORRECCIÓN DE URL !!!
 const SYNC_SERVER_URL = 'wss://17e88f87-3a95-47ab-beb6-7e4e9cc1289f-00-17bko8f94rzj.riker.replit.dev';
 let ws;
 let currentRoomId = null;
@@ -2048,9 +2049,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // ===== FIN DE LISTENERS AÑADIDOS (Letras) =====
     
-    // ===== INICIO LISTENERS RAVE SYNC (AÑADIDO) =====
+    // ===== INICIO LISTENERS RAVE SYNC (MODIFICADO) =====
+    // Esta es la corrección clave para el "autoplay"
     if (createRoomBtn) {
         createRoomBtn.addEventListener('click', () => {
+            // Desbloquear el audio con esta acción del usuario
+            initAudioContext(); 
+            
             isHost = true;
             connectToSyncServer();
         });
@@ -2058,6 +2063,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (joinRoomBtn) {
         joinRoomBtn.addEventListener('click', () => {
             if (joinRoomInput && joinRoomInput.value.trim().length > 0) {
+                // Desbloquear el audio con esta acción del usuario
+                initAudioContext(); 
+                
                 isHost = false;
                 connectToSyncServer(joinRoomInput.value.trim());
             } else {
@@ -2065,7 +2073,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-    // ===== FIN LISTENERS RAVE SYNC (AÑADIDO) =====
+    // ===== FIN LISTENERS RAVE SYNC (MODIFICADO) =====
 
 
     // Listeners de Audio (ACTUALIZADO)
@@ -2355,7 +2363,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 // ====================================================================
-// K. FUNCIONES RAVE SYNC (AÑADIDO)
+// K. FUNCIONES RAVE SYNC (ACTUALIZADO CON AMBAS CORRECCIONES)
 // ====================================================================
 
 /**
@@ -2458,7 +2466,7 @@ function stopSyncInterval() {
 
 /**
  * (CLIENTE) Maneja un mensaje de 'full-sync' entrante del host.
- * ===== ESTA ES LA FUNCIÓN CORREGIDA =====
+ * ===== ESTA ES LA FUNCIÓN CORREGIDA (V2) =====
  */
 function handleSyncState(payload) {
     if (isHost) return; // El host no debe escucharse a sí mismo
@@ -2478,13 +2486,13 @@ function handleSyncState(payload) {
         if (syncStatus) syncStatus.textContent = `Alerta: ¿Listas diferentes?`;
     }
 
-    // ===== INICIO DE LA CORRECCIÓN DE LÓGICA =====
+    // ===== INICIO DE LA CORRECCIÓN DE LÓGICA (V2) =====
 
     /**
      * Esta función aplica el estado del Host (tiempo y play/pause).
      * Se llamará inmediatamente si la canción ya está cargada,
      * o DESPUÉS de que cargue si es una canción nueva.
-     * * @param {boolean} isNewTrack - True si la canción acaba de ser cargada.
+     * @param {boolean} isNewTrack - True si la canción acaba de ser cargada.
      */
     const applyState = (isNewTrack = false) => {
         
@@ -2501,9 +2509,10 @@ function handleSyncState(payload) {
 
         // 2. Sincronizar estado de reproducción
         if (isPlaying && audioPlayer.paused) {
-            initAudioContext();
+            // initAudioContext() ya DEBERÍA haber sido llamado por el clic en "Unirse".
+            // Si falla aquí, es porque el usuario no hizo clic.
             audioPlayer.play().catch(e => {
-                console.warn("Sync: El navegador bloqueó el auto-play.");
+                console.warn("Sync: El navegador bloqueó el auto-play. El usuario debe hacer clic.");
                 if (syncStatus) syncStatus.textContent = "¡Haz clic para iniciar el audio!";
             });
         } else if (!isPlaying && !audioPlayer.paused) {
@@ -2540,7 +2549,7 @@ function handleSyncState(payload) {
         applyState(false);
     }
     
-    // ===== FIN DE LA CORRECCIÓN DE LÓGICA =====
+    // ===== FIN DE LA CORRECCIÓN DE LÓGICA (V2) =====
 
     if (syncStatus) syncStatus.textContent = `Sincronizado (Host) - ${isPlaying ? "Play" : "Pausa"}`;
 }
