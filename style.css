@@ -1292,3 +1292,58 @@ body.mobile-detected #mobile-folder-btn {
     margin-top: 10px;
 }
 /* ===== FIN SECCIÓN 13 ===== */
+
+/* ===== INICIO SECCIÓN 14: ESTILOS DE RAVE SYNC (AÑADIDO) ===== */
+.sidebar-list.sync-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.sync-panel #sync-status {
+    font-size: 0.9em;
+    color: var(--card-text-secondary-color);
+    text-align: left;
+    width: 100%;
+}
+.sync-panel input[type="text"] {
+    width: 100%;
+    box-sizing: border-box; /* Asegura que el padding no desborde */
+    background-color: #000;
+    color: var(--card-text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 0.9em;
+    outline: none;
+    transition: border-color 0.3s;
+}
+.sync-panel input[type="text"]:focus {
+    border-color: var(--main-color);
+}
+.sync-panel input#room-code-display {
+    color: var(--main-color);
+    font-weight: bold;
+    text-align: center;
+    letter-spacing: 2px;
+    font-size: 1.1em;
+}
+.sync-panel button {
+    width: 100%;
+    background-color: #000;
+    color: var(--card-text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 8px;
+    font-size: 0.9em;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.3s, border-color 0.3s;
+}
+.sync-panel button:hover {
+    background-color: var(--border-color);
+}
+.sync-panel button#join-room-btn:hover {
+    background-color: var(--main-color);
+    border-color: var(--main-color);
+}
+/* ===== FIN SECCIÓN 14 ===== */
