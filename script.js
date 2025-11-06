@@ -2201,190 +2201,281 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-/* ================= P2P / SIGNALING SYNC (AÑADIDO) =================
-   Usa tu servidor de señalización Replit. No transmite audio, sólo
-   eventos (play/pause/seek/load) para sincronizar pistas locales idénticas.
-   Ajusta SIGNALING_WSS si cambias la URL del servidor.
+/* ================= P2P / SIGNALING SYNC - REEMPLAZO ROBUSTO =================
+   Pega este bloque al final de tu script.js (reemplaza la versión anterior P2P).
+   Mejora: espera a que la conexión WS esté OPEN antes de mandar create/join.
 */
 (function(){
     const SIGNALING_WSS = 'wss://17e88f87-3a95-47ab-beb6-7e4e9cc1289f-00-17bko8f94rzj.riker.replit.dev';
 
-    // Elementos UI (pueden existir ya; si no, se obtienen cuando DOM listo)
-    function $(id){ return document.getElementById(id); }
+    // util DOM id
+    const $ = id => document.getElementById(id);
 
+    // Estado WS
     let ws = null;
-    let connected = false;
     let currentRoomId = null;
     let isHost = false;
+    let openingPromise = null; // Promise que resuelve cuando ws está OPEN
 
-    function openWebSocket(){
-        if(ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-        try{
-            ws = new WebSocket(SIGNALING_WSS);
-        }catch(e){
-            console.error('No se pudo abrir WebSocket', e);
-            const el = $('rave-status'); if(el) el.textContent = 'Error WS (creación)';
-            return;
+    // Abre WS y devuelve Promise que resuelve cuando OPEN o rechaza en error
+    function openWebSocket() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            return Promise.resolve(ws);
         }
-        ws.addEventListener('open', ()=>{
-            connected = true;
-            const el = $('rave-status'); if(el) el.textContent = 'Conectado al servidor de señalización.';
+        if (openingPromise) return openingPromise;
+
+        openingPromise = new Promise((resolve, reject) => {
+            try {
+                console.log('[P2P] -> intentando abrir WebSocket a', SIGNALING_WSS);
+                ws = new WebSocket(SIGNALING_WSS);
+            } catch (err) {
+                console.error('[P2P] error creando WebSocket:', err);
+                openingPromise = null;
+                updateStatus('Error al crear WS');
+                return reject(err);
+            }
+
+            const cleanup = () => { /* no-op placeholder */ };
+
+            ws.addEventListener('open', () => {
+                console.log('[P2P] WebSocket abierto');
+                updateStatus('Conectado al servidor de señalización');
+                resolve(ws);
+                openingPromise = null;
+            });
+
+            ws.addEventListener('message', ev => {
+                // el servidor puede reenviarnos JSON
+                try {
+                    const data = JSON.parse(ev.data);
+                    console.log('[P2P] Mensaje WS recibido:', data);
+                    handleServerMessage(data);
+                } catch (e) {
+                    console.warn('[P2P] Mensaje WS no JSON:', ev.data);
+                }
+            });
+
+            ws.addEventListener('close', () => {
+                console.warn('[P2P] WebSocket cerrado');
+                updateStatus('Desconectado del servidor');
+                // limpiar para permitir reabrir más tarde
+                ws = null;
+                openingPromise = null;
+            });
+
+            ws.addEventListener('error', err => {
+                console.error('[P2P] Error WebSocket:', err);
+                updateStatus('Error en WebSocket');
+                ws = null;
+                openingPromise = null;
+                reject(err);
+            });
+
+            // timeout si no abre en 6s
+            setTimeout(() => {
+                if (ws && ws.readyState !== WebSocket.OPEN) {
+                    console.warn('[P2P] WS no abrió en 6s, cerrando intento');
+                    try { ws.close(); } catch(_) {}
+                    openingPromise = null;
+                    reject(new Error('timeout opening ws'));
+                }
+            }, 6000);
         });
-        ws.addEventListener('message', (ev)=>{
-            let data = null;
-            try{ data = JSON.parse(ev.data); } catch(e){ console.warn('Mensaje no JSON WS:', ev.data); return; }
-            handleServerMessage(data);
-        });
-        ws.addEventListener('close', ()=>{
-            connected = false;
-            const el = $('rave-status'); if(el) el.textContent = 'Desconectado';
-        });
-        ws.addEventListener('error', (err)=>{
-            console.error('WS error', err);
-            const el = $('rave-status'); if(el) el.textContent = 'Error WS';
-        });
+
+        return openingPromise;
     }
 
     function sendRaw(obj){
-        if(!ws || ws.readyState !== WebSocket.OPEN) openWebSocket();
-        setTimeout(()=>{ if(ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }, 150);
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            console.log('[P2P] sendRaw: WS no abierto, intentando abrir y reenviar');
+            updateStatus('Conectando al servidor...');
+            return openWebSocket().then(() => {
+                try {
+                    ws.send(JSON.stringify(obj));
+                    console.log('[P2P] Mensaje enviado tras abrir WS:', obj);
+                } catch(e) {
+                    console.error('[P2P] Fallo al enviar mensaje:', e);
+                }
+            }).catch(err => {
+                console.error('[P2P] No se pudo abrir WS para enviar:', err);
+            });
+        }
+        try {
+            ws.send(JSON.stringify(obj));
+            console.log('[P2P] Mensaje enviado:', obj);
+        } catch(e) {
+            console.error('[P2P] Error enviando mensaje:', e);
+        }
     }
 
     function sendRelay(payload, roomId){
-        if(!roomId) return;
+        if(!roomId) { console.warn('[P2P] sendRelay sin roomId'); return; }
         const msg = Object.assign({ type: 'relay-message', roomId: roomId }, payload);
         sendRaw(msg);
     }
 
-    function handleServerMessage(data){
-        // server messages: room-created, room-joined, error, client-joined, client-left
-        if(!data || !data.type) return;
-        if(data.type === 'room-created'){
-            currentRoomId = data.roomId;
-            isHost = true;
-            const myInput = $('my-room-id'); if(myInput) myInput.value = currentRoomId;
-            const st = $('rave-status'); if(st) st.textContent = 'Sala creada: ' + currentRoomId;
-            return;
-        }
-        if(data.type === 'room-joined'){
-            currentRoomId = data.roomId;
-            isHost = false;
-            const st = $('rave-status'); if(st) st.textContent = 'Unido a la sala: ' + currentRoomId;
-            return;
-        }
-        if(data.type === 'error'){
-            const st = $('rave-status'); if(st) st.textContent = 'Error: ' + (data.message||'desconocido');
-            return;
-        }
-        if(data.type === 'client-joined'){
-            const st = $('rave-status'); if(st) st.textContent = 'Cliente se unió a la sala';
-            return;
-        }
-        if(data.type === 'client-left'){
-            const st = $('rave-status'); if(st) st.textContent = 'Cliente salió de la sala';
-            return;
-        }
+    // Actualiza indicador de estado visual y console
+    function updateStatus(text){
+        console.log('[P2P STATUS]', text);
+        const st = $('rave-status');
+        if(st) st.textContent = text;
+    }
 
-        // If server relays the original message object, it will come through as-is.
-        // Our protocol: payloads will have type starting with "sync-"
-        if(data.type && data.type.startsWith('sync-')){
-            handlePeerSyncMessage(data);
-            return;
-        }
-        // Or server might wrap payload: { type: 'relay-message', roomId:'..', ...payload }
-        if(data.type === 'relay-message' && data.roomId){
-            // reconstruct payload object by removing known keys
-            const payload = Object.assign({}, data);
-            delete payload.type; delete payload.roomId;
-            handlePeerSyncMessage(payload);
+    // Manejo de mensajes del servidor (según tu server)
+    function handleServerMessage(data){
+        if(!data || !data.type) return;
+        switch(data.type){
+            case 'room-created':
+                currentRoomId = data.roomId;
+                isHost = true;
+                if($('my-room-id')) $('my-room-id').value = currentRoomId;
+                updateStatus('Sala creada: ' + currentRoomId);
+                break;
+            case 'room-joined':
+                currentRoomId = data.roomId;
+                isHost = false;
+                updateStatus('Unido a la sala: ' + currentRoomId);
+                break;
+            case 'client-joined':
+                updateStatus('Alguien se ha unido a tu sala.');
+                break;
+            case 'client-left':
+                updateStatus('Cliente salió de la sala.');
+                break;
+            case 'error':
+                updateStatus('Error: ' + (data.message || 'desconocido'));
+                break;
+            default:
+                // Si el servidor reenvía directamente payloads sync
+                if(data.type && data.type.startsWith('sync-')){
+                    handlePeerSyncMessage(data);
+                } else if (data.type === 'relay-message') {
+                    // reconstruir payload quitando type/roomId
+                    const payload = Object.assign({}, data);
+                    delete payload.type;
+                    delete payload.roomId;
+                    handlePeerSyncMessage(payload);
+                } else {
+                    console.log('[P2P] Mensaje desconocido:', data);
+                }
         }
     }
 
+    // Manejo de mensajes sync recibidos desde otros peers
     function handlePeerSyncMessage(msg){
         if(!msg || !msg.type) return;
-        const t = msg.type;
-        const now = Date.now();
-
-        // audioPlayer element from the page
         const player = document.querySelector('audio#audio-player');
         if(!player) return;
+        const now = Date.now();
 
-        if(t === 'sync-play'){
+        if(msg.type === 'sync-play'){
             const sentTime = msg.timestamp || now;
             const sentCurrent = Number(msg.currentTime || 0);
-            const rttSec = Math.max(0, (now - sentTime) / 1000);
-            const target = sentCurrent + rttSec;
+            const rtt = Math.max(0, (now - sentTime)/1000);
+            const target = sentCurrent + rtt;
             if(Math.abs(player.currentTime - target) > 0.5) player.currentTime = target;
             player.play().catch(()=>{});
-            const st = $('rave-status'); if(st) st.textContent = 'Reproduciendo sincronizado';
-        } else if(t === 'sync-pause'){
+            updateStatus('Reproduciendo (sincronizado). RTT ~' + rtt.toFixed(2) + 's');
+        } else if(msg.type === 'sync-pause'){
             const sentTime = msg.timestamp || now;
             const sentCurrent = Number(msg.currentTime || 0);
-            const rttSec = Math.max(0, (now - sentTime) / 1000);
-            const target = sentCurrent + rttSec;
+            const rtt = Math.max(0, (now - sentTime)/1000);
+            const target = sentCurrent + rtt;
             if(Math.abs(player.currentTime - target) > 0.5) player.currentTime = target;
             player.pause();
-            const st = $('rave-status'); if(st) st.textContent = 'Pausado por peer';
-        } else if(t === 'sync-seek'){
+            updateStatus('Pausado por peer');
+        } else if(msg.type === 'sync-seek'){
             const sentCurrent = Number(msg.currentTime || 0);
             player.currentTime = sentCurrent;
-            const st = $('rave-status'); if(st) st.textContent = 'Seek por peer a ' + new Date(sentCurrent*1000).toISOString().substr(14,5);
-        } else if(t === 'sync-load'){
+            updateStatus('Seek por peer a ' + Math.floor(sentCurrent) + 's');
+        } else if(msg.type === 'sync-load'){
             const fileName = msg.fileName || 'desconocido';
-            const st = $('rave-status'); if(st) st.textContent = 'Peer cargó: ' + fileName;
+            updateStatus('Peer cargó: ' + fileName);
         }
     }
 
-    // UI wiring after DOM ready
-    function setupUI(){
+    // UI wiring: adjunta handlers a botones (si existen ahora o más tarde)
+    function wireUI(){
         const createBtn = $('create-room-btn');
-        const copyBtn = $('copy-room-btn');
         const joinBtn = $('join-room-btn');
+        const copyBtn = $('copy-room-btn');
         const joinInput = $('join-room-input');
 
         if(createBtn){
-            createBtn.addEventListener('click', ()=>{
-                openWebSocket();
-                sendRaw({ type: 'create-room' });
+            createBtn.addEventListener('click', async function(){
+                updateStatus('Creando sala... conectando al servidor');
+                try{
+                    await openWebSocket();
+                    updateStatus('Servidor conectado. Solicitando creación de sala...');
+                    // enviar create-room y esperar respuesta del server
+                    sendRaw({ type: 'create-room' });
+                }catch(err){
+                    console.error('[P2P] No se pudo abrir WS al crear sala:', err);
+                    updateStatus('Error: no se pudo conectar al servidor');
+                }
             });
-        }
-        if(copyBtn){
-            copyBtn.addEventListener('click', ()=>{
-                const code = $('my-room-id') ? $('my-room-id').value : '';
-                if(!code) return;
-                navigator.clipboard?.writeText(code).then(()=>{ const st=$('rave-status'); if(st) st.textContent='Código copiado'; }).catch(()=>{});
-            });
-        }
-        if(joinBtn){
-            joinBtn.addEventListener('click', ()=>{
-                const code = (joinInput.value||'').trim().toUpperCase();
-                if(!code){ const st=$('rave-status'); if(st) st.textContent='Introduce un código'; return; }
-                openWebSocket();
-                sendRaw({ type: 'join-room', roomId: code });
-            });
+        } else {
+            console.warn('[P2P] create-room-btn no encontrado en DOM.');
         }
 
-        // Hook player events to send relays
-        const player = document.querySelector('audio#audio-player');
-        if(player){
-            player.addEventListener('play', ()=>{
-                if(!connected || !currentRoomId) return;
-                sendRelay({ type: 'sync-play', currentTime: player.currentTime, timestamp: Date.now() }, currentRoomId);
+        if(joinBtn){
+            joinBtn.addEventListener('click', async function(){
+                const code = (joinInput && joinInput.value || '').trim().toUpperCase();
+                if(!code){ updateStatus('Introduce un código para unirse'); return; }
+                updateStatus('Uniéndose a ' + code + ' — conectando al servidor...');
+                try{
+                    await openWebSocket();
+                    sendRaw({ type: 'join-room', roomId: code });
+                }catch(err){
+                    console.error('[P2P] Error al abrir WS para unirse:', err);
+                    updateStatus('Error al conectar al servidor');
+                }
             });
-            player.addEventListener('pause', ()=>{
-                if(!connected || !currentRoomId) return;
-                sendRelay({ type: 'sync-pause', currentTime: player.currentTime, timestamp: Date.now() }, currentRoomId);
-            });
-            player.addEventListener('seeked', ()=>{
-                if(!connected || !currentRoomId) return;
-                sendRelay({ type: 'sync-seek', currentTime: player.currentTime, timestamp: Date.now() }, currentRoomId);
+        } else {
+            console.warn('[P2P] join-room-btn no encontrado en DOM.');
+        }
+
+        if(copyBtn){
+            copyBtn.addEventListener('click', function(){
+                const code = $('my-room-id') ? $('my-room-id').value : '';
+                if(!code) { updateStatus('No hay código para copiar'); return; }
+                navigator.clipboard?.writeText(code).then(()=> updateStatus('Código copiado al portapapeles') ).catch(()=> updateStatus('No se pudo copiar'));
             });
         }
     }
 
-    document.addEventListener('DOMContentLoaded', ()=>{
-        setupUI();
-        openWebSocket();
-    });
+    // Hook eventos del reproductor para enviar relays (si hay room)
+    function hookPlayerEvents(){
+        const player = document.querySelector('audio#audio-player');
+        if(!player) return;
+        player.addEventListener('play', ()=> {
+            if(!currentRoomId) return;
+            sendRelay({ type: 'sync-play', currentTime: player.currentTime, timestamp: Date.now() }, currentRoomId);
+            console.log('[P2P] emit sync-play');
+        });
+        player.addEventListener('pause', ()=> {
+            if(!currentRoomId) return;
+            sendRelay({ type: 'sync-pause', currentTime: player.currentTime, timestamp: Date.now() }, currentRoomId);
+            console.log('[P2P] emit sync-pause');
+        });
+        player.addEventListener('seeked', ()=> {
+            if(!currentRoomId) return;
+            sendRelay({ type: 'sync-seek', currentTime: player.currentTime, timestamp: Date.now() }, currentRoomId);
+            console.log('[P2P] emit sync-seek');
+        });
+    }
+
+    // Try to wire UI immediately if DOM is ready, otherwise wait
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        wireUI();
+        hookPlayerEvents();
+    } else {
+        document.addEventListener('DOMContentLoaded', ()=>{ wireUI(); hookPlayerEvents(); });
+    }
+
+    // Expose for debugging in console
+    window._P2P_SIGNALING = {
+        openWebSocket, sendRaw, sendRelay, handleServerMessage, handlePeerSyncMessage: handlePeerSyncMessage,
+        getState: () => ({ wsState: ws ? ws.readyState : null, currentRoomId, isHost })
+    };
 })();
-/* =============== FIN P2P / SIGNALING ==================== */
