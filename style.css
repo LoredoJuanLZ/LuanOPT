@@ -1363,3 +1363,123 @@ body.mobile-detected #mobile-folder-btn {
     border-color: var(--main-color);
 }
 /* ===== FIN SECCIÓN 14 ===== */
+
+/* --- 15. ESTILOS DE BÚSQUEDA ONLINE (AÑADIR) --- */
+
+/* El .search-panel hereda los estilos base de .playlist-panel,
+   por lo que solo necesitamos definir los estilos internos. */
+
+.search-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+.search-header h3 {
+    margin: 0;
+    font-size: 1.2em;
+    opacity: 0.9;
+}
+
+.search-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+#search-input {
+    flex-grow: 1; /* Ocupa el espacio disponible */
+    background-color: #000;
+    color: var(--card-text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.9em;
+    outline: none;
+    transition: border-color 0.3s;
+}
+#search-input:focus {
+    border-color: var(--main-color);
+}
+
+#search-btn {
+    flex-shrink: 0; /* No se encoge */
+    background-color: #000;
+    color: var(--card-text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0;
+    width: 38px; /* Cuadrado */
+    height: 38px;
+    cursor: pointer;
+    transition: background-color 0.3s, border-color 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#search-btn:hover {
+    background-color: var(--main-color);
+    border-color: var(--main-color);
+}
+#search-btn .material-icons {
+    font-size: 20px;
+}
+
+/* Lista de resultados (reutiliza estilos de #playlist-list) */
+#search-results-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    /* Altura aprox: 400px (panel) - 40px (header) - 55px (controles) */
+    max-height: 290px; 
+    overflow-y: auto;
+    /* Scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+}
+#search-results-list::-webkit-scrollbar { width: 5px; }
+#search-results-list::-webkit-scrollbar-track { background: transparent; }
+#search-results-list::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 10px; }
+
+#search-results-list li {
+    padding: 8px 10px;
+    margin-bottom: 5px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s, color 0.2s;
+    font-size: 0.9em;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+#search-results-list li:hover {
+    background-color: var(--border-color);
+}
+#search-results-list li.empty-message {
+    color: var(--card-text-secondary-color);
+    text-align: center;
+    padding: 20px 0;
+    cursor: default;
+}
+#search-results-list li .material-icons {
+    font-size: 1.1em;
+    color: var(--main-color);
+}
+
+/* Icono de estado (Loading) */
+.search-status-icon {
+    font-size: 20px;
+    color: var(--main-color);
+    /* Animación de giro */
+    animation: spin 1.5s linear infinite;
+}
+
+/* Definición de la animación de giro */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
