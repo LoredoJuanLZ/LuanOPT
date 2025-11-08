@@ -125,6 +125,7 @@ let lrcMap = new Map(); // Mapa para almacenar archivos .lrc por nombre base
 let currentLyrics = []; // Array de {time, text} de la canción actual
 let currentLyricIndex = -1;
 let lrcBadgeElement; // <- AÑADIDO: Referencia al badge "LRC"
+let retryLyricsBtn; // <-- AÑADIDO: Botón reintentar letra
 
 // VARS PARA NUEVAS OPCIONES (AÑADIDO)
 let lyricsAlignOptions, lyricsFontSelect, lyricsEffectSelect;
@@ -469,6 +470,47 @@ function getBatteryStatus() {
 // C. FUNCIONES DE LETRAS (ACTUALIZADO)
 // ===================================
 
+// ===== INICIO: NUEVAS VARIABLES Y FUNCIONES DE CACHÉ (AÑADIDO) =====
+const LYRIC_CACHE_KEY = 'lyricCache';
+const CACHE_NOT_FOUND = '__NOT_FOUND__'; // Constante para marcar letras no encontradas
+
+/**
+ * Obtiene el objeto de caché de letras desde localStorage.
+ * @returns {object} El objeto de caché parseado.
+ */
+function getLyricCache() {
+    try {
+        const cache = localStorage.getItem(LYRIC_CACHE_KEY);
+        return cache ? JSON.parse(cache) : {};
+    } catch (error) {
+        console.error("Error al leer la caché de letras:", error);
+        return {}; // Resetear caché si está corrupta
+    }
+}
+
+/**
+ * Guarda una letra específica en la caché de localStorage.
+ * @param {string} artist - El artista de la canción.
+ * @param {string} title - El título de la canción.
+ * @param {string} lyrics - El texto de la letra o CACHE_NOT_FOUND.
+ */
+function setCachedLyric(artist, title, lyrics) {
+    const cache = getLyricCache();
+    // Usar claves en minúsculas para consistencia
+    const key = `${artist.toLowerCase()}|${title.toLowerCase()}`;
+    cache[key] = lyrics;
+    
+    try {
+        localStorage.setItem(LYRIC_CACHE_KEY, JSON.stringify(cache));
+    } catch (error) {
+        // Error más común: QuotaExceededError (localStorage lleno)
+        console.warn("Error al guardar en caché de letras (posiblemente llena):", error);
+        // En una implementación más avanzada, aquí se podría limpiar la caché (ej. LRU)
+    }
+}
+// ===== FIN: NUEVAS VARIABLES Y FUNCIONES DE CACHÉ =====
+
+
 /**
  * (NUEVA FUNCIÓN AÑADIDA)
  * Analiza el contenido de la letra (array o string) y encuentra una frase popular.
@@ -592,6 +634,7 @@ function loadLyrics(lrcFile) {
         currentLyrics = parseLRC(content); // Establece las letras sincronizadas
         displayLyrics(currentLyrics);
         if (lrcBadgeElement) lrcBadgeElement.style.display = 'inline'; // <-- MOSTRAR BADGE
+        if (retryLyricsBtn) retryLyricsBtn.style.display = 'none'; // <-- OCULTAR BOTÓN REINTENTAR
         
         // ===== FOOTER (AÑADIDO) =====
         const phrase = findPopularPhrase(currentLyrics);
@@ -620,11 +663,15 @@ function displayUnsyncedLyrics(plainText) {
     const lines = plainText.split('\n');
     if (lines.length === 0 || (lines.length === 1 && lines[0] === '')) {
         lyricsList.innerHTML = '<li class="empty-message">No se pudo encontrar la letra.</li>';
+        if (retryLyricsBtn) retryLyricsBtn.style.display = 'flex'; // <-- MOSTRAR BOTÓN REINTENTAR
         // ===== FOOTER (AÑADIDO) =====
         if (footerLyricPhrase) footerLyricPhrase.textContent = 'Letra no encontrada.';
         // ===== FIN FOOTER =====
         return;
     }
+
+    // Letra encontrada, ocultar botón
+    if (retryLyricsBtn) retryLyricsBtn.style.display = 'none'; // <-- OCULTAR BOTÓN REINTENTAR
 
     lines.forEach(line => {
         const li = document.createElement('li');
@@ -648,19 +695,43 @@ const allBracketsRegex = /(\[.*?\])|(\(.*?\))/g;
 const junkRegex = /\s*([\[\(])(feat|ft|with|official|video|lyric|live|remix|audio|explicit|single|edition|version).*?([\]\)])/ig;
 
 /**
- * (NUEVA LÓGICA SÓLIDA)
- * Intenta buscar la letra de la canción en una API pública.
- * Prueba múltiples combinaciones de limpieza de texto.
- * MODIFICADO: Actualiza el footer.
+ * (NUEVA FUNCIÓN AÑADIDA)
+ * Fuerza una nueva búsqueda de letras. Se activa con el botón de reintentar.
+ * MODIFICADO: Ahora pasa `bypassCache = true` a `fetchLyrics`.
  */
-async function fetchLyrics(artist, title, trackIndex) {
+function retryLyricSearch() {
+    if (currentTrackIndex < 0 || !songTitle || !artistName) {
+        return;
+    }
+    
+    // Ocultar botón inmediatamente al hacer clic
+    if (retryLyricsBtn) retryLyricsBtn.style.display = 'none';
+
+    // Obtener el artista y título ACTUALES
+    const artist = artistName.textContent || 'Artista Desconocido';
+    const title = songTitle.textContent || 'Título Desconoci';
+
+    // Llamar a fetchLyrics con el trackIndex actual (para el chequeo de race condition)
+    // y Bypassing la caché.
+    fetchLyrics(artist, title, currentTrackIndex, true); // <-- AÑADIDO 'true'
+}
+
+
+/**
+ * (NUEVA LÓGICA SÓLIDA)
+ * Intenta buscar la letra de la canción en caché o en una API pública.
+ * Prueba múltiples combinaciones de limpieza de texto.
+ * MODIFICADO: Implementa la lógica de CACHÉ (Local -> Caché -> Online).
+ */
+async function fetchLyrics(artist, title, trackIndex, bypassCache = false) { // <-- AÑADIDO 'bypassCache'
     if (!lyricsList) return;
     
-    // Ocultar badge LRC al iniciar la búsqueda
+    // Ocultar badge LRC y botón de reintentar al iniciar la búsqueda
     if (lrcBadgeElement) lrcBadgeElement.style.display = 'none';
+    if (retryLyricsBtn) retryLyricsBtn.style.display = 'none'; // <-- OCULTAR BOTÓN REINTENTAR
 
     // 1. Mensaje de carga
-    lyricsList.innerHTML = '<li class="empty-message">Buscando letra en internet...</li>';
+    lyricsList.innerHTML = '<li class="empty-message">Buscando letra...</li>'; // Mensaje más corto
     if (footerLyricPhrase) footerLyricPhrase.textContent = 'Buscando letra...'; // <-- FOOTER
     currentLyrics = []; // Desactivar sincronización
     currentLyricIndex = -1;
@@ -669,6 +740,23 @@ async function fetchLyrics(artist, title, trackIndex) {
     const baseArtist = artist.split(/[;,]/)[0].trim();
     const baseTitle = title.trim();
 
+    // ===== INICIO DE LÓGICA DE PERMUTACIÓN CORREGIDA =====
+    
+    // Crear el título para la permutación 4 de forma inteligente
+    const titleParts = baseTitle.split(' - ');
+    let perm4Title = baseTitle; // Por defecto, es el título completo
+    
+    if (titleParts.length > 1) {
+        // Comprobar si la primera parte NO es solo un número (ej. "01", "02")
+        if (isNaN(parseInt(titleParts[0], 10))) {
+            // Caso: "Song Name - Remix" -> "Song Name"
+            perm4Title = titleParts[0].trim();
+        } else if (titleParts.length > 1) { // Asegurarse de que hay más partes
+            // Caso: "01 - Song Name" -> "Song Name"
+            perm4Title = titleParts.slice(1).join(' - ').trim();
+        }
+    }
+
     const permutations = [
         // Intento 1: Tal cual (El más probable)
         { artist: baseArtist, title: baseTitle },
@@ -676,13 +764,22 @@ async function fetchLyrics(artist, title, trackIndex) {
         // Intento 2: Limpieza "Junk" (Quita feat, official, etc.)
         { artist: baseArtist.replace(junkRegex, '').trim(), title: baseTitle.replace(junkRegex, '').trim() },
         
-        // Intento 3: Limpieza "Aggresiva" (Quita TODO en paréntesis/corchetes)
-        // Esto arreglará "Right Here (Explicit)" si la API lo tiene como "Right Here"
+        // Intento 3: Limpieza "Aggresiva" (Quita TODO en paréntesis/corch.)
         { artist: baseArtist.replace(allBracketsRegex, '').trim(), title: baseTitle.replace(allBracketsRegex, '').trim() },
         
-        // Intento 4: Limpieza de "Hyphen" (Quita " - Remastered", etc. del título)
-        { artist: baseArtist, title: baseTitle.split(' - ')[0].trim() }
+        // Intento 4: (MODIFICADO) Limpieza de "Hyphen" inteligente
+        { artist: baseArtist, title: perm4Title }
     ];
+    // ===== FIN DE LÓGICA DE PERMUTACIÓN CORREGIDA =====
+
+    // ===== INICIO DE MODIFICACIÓN (Intento 5: "Artist - Title") =====
+    if (titleParts.length > 1) {
+        const potentialTitle = titleParts.slice(1).join(' - ').trim();
+        if (potentialTitle && (titleParts[0].toLowerCase().includes(baseArtist.toLowerCase()) || baseArtist.toLowerCase().includes(titleParts[0].toLowerCase()))) {
+             permutations.push({ artist: baseArtist, title: potentialTitle });
+        }
+    }
+    // ===== FIN DE MODIFICACIÓN =====
 
     // Deduplicar la lista de intentos.
     const uniquePermutations = new Map();
@@ -695,11 +792,57 @@ async function fetchLyrics(artist, title, trackIndex) {
     });
 
     // 3. Ejecutar la cadena de búsqueda
+    
+    // ===== INICIO: LÓGICA DE CACHÉ (AÑADIDO) =====
+    
+    const lyricCache = getLyricCache();
+    
+    if (bypassCache) {
+        console.log("Bypass de caché solicitado por el usuario.");
+    } else {
+        // 3.1. PRIMERO: Chequear la caché para todas las permutaciones
+        for (const [key, perm] of uniquePermutations) {
+            // (Race condition check)
+            if (trackIndex !== currentTrackIndex) return;
+
+            const cacheKey = `${perm.artist.toLowerCase()}|${perm.title.toLowerCase()}`;
+            const cachedLyric = lyricCache[cacheKey];
+
+            if (cachedLyric) {
+                // ¡Cache hit!
+                if (cachedLyric === CACHE_NOT_FOUND) {
+                    // Está en caché como "no encontrado".
+                    // No hacemos nada, el bucle sigue a la siguiente permutación.
+                    console.log(`Cache hit (NO ENCONTRADO): ${perm.artist} - ${perm.title}`);
+                } else {
+                    // ¡Encontrada en caché!
+                    console.log(`Cache hit (ENCONTRADO): ${perm.artist} - ${perm.title}`);
+                    displayUnsyncedLyrics(cachedLyric); // Esto actualiza el footer
+                    return; // ¡ÉXITO! Salir de la función fetchLyrics
+                }
+            }
+        }
+    }
+    // Si salimos de este bucle, significa que NINGUNA permutación
+    // tenía una letra válida en la caché.
+    // ===== FIN: LÓGICA DE CACHÉ =====
+
+
+    // 3.2. SEGUNDO: Buscar en la API (si la caché falló)
+    if (lyricsList) lyricsList.innerHTML = '<li class="empty-message">Buscando letra en internet...</li>';
+    
     for (const [key, perm] of uniquePermutations) {
-        // (Race condition check) Si el usuario cambió de canción, detener todo.
+        // (Race condition check)
         if (trackIndex !== currentTrackIndex) return; 
 
-        // console.log(`Intentando buscar letra: ${perm.artist} - ${perm.title}`); // (Debug)
+        // [NUEVO] Si estamos usando la caché (no bypass) Y la clave
+        // está cacheada como "no encontrada", saltar esta fetch.
+        const cacheKey = `${perm.artist.toLowerCase()}|${perm.title.toLowerCase()}`;
+        if (!bypassCache && lyricCache[cacheKey] === CACHE_NOT_FOUND) {
+            continue; // No buscar de nuevo algo que sabemos que falló
+        }
+
+        // console.log(`Intentando buscar letra (API): ${perm.artist} - ${perm.title}`); // (Debug)
 
         try {
             const response = await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(perm.artist)}/${encodeURIComponent(perm.title)}`);
@@ -711,14 +854,28 @@ async function fetchLyrics(artist, title, trackIndex) {
                 const data = await response.json();
                 if (data.lyrics) {
                     // ¡Éxito!
+                    console.log(`API fetch success: ${perm.artist} - ${perm.title}`);
                     displayUnsyncedLyrics(data.lyrics); // <-- Esto ya actualiza el footer
+                    
+                    // [NUEVO] Guardar en caché
+                    setCachedLyric(perm.artist, perm.title, data.lyrics);
+                    
                     return; // Salir de la función fetchLyrics
+                } else {
+                    // [NUEVO] API dio OK pero sin letra (json vacío)
+                    console.log(`API fetch OK (NO ENCONTRADO): ${perm.artist} - ${perm.title}`);
+                    setCachedLyric(perm.artist, perm.title, CACHE_NOT_FOUND);
                 }
+            } else {
+                // [NUEVO] API dio error (ej. 404)
+                console.log(`API fetch Error 404 (NO ENCONTRADO): ${perm.artist} - ${perm.title}`);
+                setCachedLyric(perm.artist, perm.title, CACHE_NOT_FOUND);
             }
             // Si !response.ok o no hay data.lyrics, el bucle continúa al siguiente intento...
         } catch (error) {
             // Error de red, el bucle continúa al siguiente intento...
-            console.warn(`Intento fallido para ${key}:`, error);
+            // No guardamos en caché un error de red, para que pueda reintentar
+            console.warn(`Intento fallido (red) para ${key}:`, error);
         }
     }
 
@@ -726,9 +883,10 @@ async function fetchLyrics(artist, title, trackIndex) {
     // (Race condition check)
     if (trackIndex !== currentTrackIndex) return;
 
-    console.error("Todos los intentos de búsqueda de letra fallaron.");
+    console.error("Todos los intentos (caché y API) de búsqueda de letra fallaron.");
     lyricsList.innerHTML = '<li class="empty-message">No se pudo encontrar la letra.</li>';
     if (footerLyricPhrase) footerLyricPhrase.textContent = '...'; // <-- FOOTER
+    if (retryLyricsBtn) retryLyricsBtn.style.display = 'flex'; // <-- MOSTRAR BOTÓN REINTENTAR
 }
 // ===== FIN: LÓGICA DE BÚSQUEDA SÓLIDA =====
 
@@ -762,7 +920,7 @@ function updateMostPlayedUI() {
 
 /**
  * MODIFICADO: Ahora también aplica el tema dinámico si está activado.
- * MODIFICADO: Ahora busca letras en internet si no hay .lrc
+ * MODIFICADO: Ahora busca letras en internet (o CACHÉ) si no hay .lrc
  * MODIFICADO: Actualiza el footer (título y contador de "más escuchada").
  * MODIFICADO: Llama a la lógica de RAVE SYNC si es el HOST.
  * MODIFICADO: Maneja pistas locales (File) y online (Object {isOnline, url, name}).
@@ -774,6 +932,7 @@ function loadTrack(index, autoPlay = false) {
         currentLyrics = [];
         displayLyrics(null); // Limpia el panel
         if (lrcBadgeElement) lrcBadgeElement.style.display = 'none'; // <-- OCULTAR BADGE
+        if (retryLyricsBtn) retryLyricsBtn.style.display = 'none'; // <-- OCULTAR BOTÓN REINTENTAR
         if (footerLyricPhrase) footerLyricPhrase.textContent = '...'; // <-- FOOTER
         
         currentTrackIndex = index;
@@ -815,9 +974,10 @@ function loadTrack(index, autoPlay = false) {
             albumArtContainer.style.backgroundImage = 'none';
             albumIcon.style.display = 'block';
 
-            // No hay .lrc locales, así que buscamos en internet
-            // (Lo hacemos aquí para que la búsqueda inicie de inmediato)
-            fetchLyrics('Artista Desconocido', basicTitle, currentTrackIndex);
+            // ===== INICIO DE CORRECCIÓN (RACE CONDITION) =====
+            // NO buscar letras aquí, esperar a jsmediatags
+            // fetchLyrics('Artista Desconocido', basicTitle, currentTrackIndex); // <--- LÍNEA ELIMINADA
+            // ===== FIN DE CORRECCIÓN (RACE CONDITION) =====
 
             // INTENTAR LEER METADATOS DESDE LA URL (jsmediatags)
             if (window.jsmediatags) {
@@ -851,9 +1011,9 @@ function loadTrack(index, autoPlay = false) {
                         if (footerSongTitle) footerSongTitle.textContent = title;
 
                         // Re-buscar letras si encontramos un artista/título mejor
-                        if (artist !== 'Artista Desconocido' || title !== basicTitle) {
-                            fetchLyrics(artist, title, currentTrackIndex);
-                        }
+                        // (O si es la primera vez que se llama)
+                        // [MODIFICADO] El 'false' final es implícito (no bypass)
+                        fetchLyrics(artist, title, currentTrackIndex); 
                         
                         if (tags.picture) {
                             const picture = tags.picture;
@@ -901,6 +1061,10 @@ function loadTrack(index, autoPlay = false) {
                             if (autoPlay) startSyncInterval();
                             else stopSyncInterval();
                         }
+                        
+                        // ===== AÑADIDO: Llamada de fallback si jsmediatags falla =====
+                        fetchLyrics('Artista Desconocido', basicTitle, currentTrackIndex);
+                        
                     }
                 });
             } else {
@@ -916,6 +1080,9 @@ function loadTrack(index, autoPlay = false) {
                     if (autoPlay) startSyncInterval();
                     else stopSyncInterval();
                 }
+                
+                // ===== AÑADIDO: Llamada de fallback si jsmediatags no existe =====
+                fetchLyrics('Online (ID3 no cargado)', basicTitle, currentTrackIndex);
             }
             // --- FIN DE MODIFICACIÓN (Arreglo de metadatos online) ---
 
@@ -958,8 +1125,7 @@ function loadTrack(index, autoPlay = false) {
                             // 1. Si se encontró .lrc local, usarlo.
                             loadLyrics(lrcFile); // <-- Ya actualiza el footer
                         } else {
-                            // 2. Si no, buscar en internet (pasando el trackIndex actual)
-                            // fetchLyrics limpiará el string "artist"
+                            // 2. Si no, buscar en caché/internet
                             fetchLyrics(artist, title, currentTrackIndex); // <-- Ya actualiza el footer
                         }
                         // ===== FIN LÓGICA DE LETRAS =====
@@ -1008,7 +1174,7 @@ function loadTrack(index, autoPlay = false) {
                             // 1. Si se encontró .lrc local, usarlo.
                             loadLyrics(lrcFile); // <-- Ya actualiza el footer
                         } else {
-                            // 2. Si no, buscar en internet (pasando el trackIndex actual)
+                            // 2. Si no, buscar en caché/internet
                             fetchLyrics(artist, title, currentTrackIndex); // <-- Ya actualiza el footer
                         }
                         // ===== FIN LÓGICA DE LETRAS =====
@@ -1921,6 +2087,7 @@ document.addEventListener('DOMContentLoaded', () => {
     lyricsPanel = document.querySelector('.lyrics-panel');
     lyricsList = document.getElementById('lyrics-list');
     lyricsPanelHeader = document.querySelector('.lyrics-panel h3'); // <-- AÑADIDO
+    retryLyricsBtn = document.getElementById('retry-lyrics-btn'); // <-- AÑADIDO
     
     // Asignaciones NUEVAS (AÑADIDO)
     lyricsAlignOptions = document.getElementById('lyrics-align-options');
@@ -2353,6 +2520,11 @@ document.addEventListener('DOMContentLoaded', () => {
         lyricsEffectSelect.addEventListener('change', (event) => {
             applyLyricEffect(event.target.value, true);
         });
+    }
+
+    // Listener de Botón Reintentar Letras (AÑADIDO)
+    if (retryLyricsBtn) {
+        retryLyricsBtn.addEventListener('click', retryLyricSearch);
     }
     // ===== FIN DE LISTENERS AÑADIDOS (Letras) =====
     
