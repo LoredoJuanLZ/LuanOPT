@@ -119,7 +119,13 @@
     <div class="main-container"> 
         
         <div class="lyrics-panel" draggable="true">
-            <h3>Letra</h3>
+            
+            <div class="lyrics-panel-header">
+                <h3>Letra</h3>
+                <button id="retry-lyrics-btn" class="retry-lyrics-btn" title="Volver a buscar la letra" style="display: none;">
+                    <span class="material-icons">refresh</span>
+                </button>
+            </div>
             <ul id="lyrics-list" data-effect="highlight" class="align-center">
                 <li class="empty-message">No hay letra disponible.</li>
             </ul>
