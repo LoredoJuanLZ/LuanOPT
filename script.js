@@ -166,7 +166,7 @@ let allOnlinePlaylists = []; // <<-- CAMBIADO (antes allOnlineSongs)
 let currentPlaylistSource = 'local'; // 'local', 'folder', o 'online'
 
 // --- VARS RAVE SYNC ---
-const SYNC_SERVER_URL = 'wss://17e88f87-3a95-47ab-beb6-7e4e9cc1289f-00-17bko8f94rzj.riker.replit.dev';
+const SYNC_SERVER_URL = 'wss://rave-sync-backend.onrender.com';
 let ws;
 let currentRoomId = null;
 let isHost = false;
