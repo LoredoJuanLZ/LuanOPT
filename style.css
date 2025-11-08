@@ -542,7 +542,21 @@ footer.header-footer-bar {
     flex-direction: column;
 }
 
-.lyrics-panel h3 { margin: 0 0 15px 0; font-size: 1.2em; opacity: 0.9; }
+/* ===== INICIO DE CÓDIGO MODIFICADO (CABECERA DE LETRAS) ===== */
+.lyrics-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px; /* Mover el margen del h3 aquí */
+}
+
+.lyrics-panel h3 { 
+    margin: 0; /* <--- MODIFICADO */
+    font-size: 1.2em; 
+    opacity: 0.9; 
+}
+/* ===== FIN DE CÓDIGO MODIFICADO ===== */
+
 #lyrics-list {
     list-style: none;
     margin: 0;
@@ -675,6 +689,35 @@ footer.header-footer-bar {
     background-color: rgba(255, 255, 255, 0.03);
 }
 /* ===== FIN DE ESTILOS AÑADIDOS ===== */
+
+/* ===== INICIO: ESTILOS DE BOTÓN REINTENTAR (MODIFICADO) ===== */
+.retry-lyrics-btn {
+    display: none; /* JS lo cambiará a 'flex' */
+    align-items: center;
+    justify-content: center;
+    
+    background: transparent;
+    border: none; /* <--- MODIFICADO */
+    color: var(--card-text-secondary-color);
+    
+    padding: 4px; /* <--- MODIFICADO */
+    margin: 0; /* <--- MODIFICADO */
+    border-radius: 50%; /* <--- MODIFICADO (para hacerlo redondo) */
+    
+    cursor: pointer;
+    
+    transition: background-color 0.3s, color 0.3s; /* <--- MODIFICADO */
+}
+
+.retry-lyrics-btn:hover {
+    background-color: var(--border-color);
+    color: var(--card-text-color);
+}
+
+.retry-lyrics-btn .material-icons {
+    font-size: 20px; /* <--- MODIFICADO */
+}
+/* ===== FIN: ESTILOS DE BOTÓN REINTENTAR ===== */
 
 
 /* --- 10. Estilos del Footer (AÑADIDOS) --- */
@@ -1482,4 +1525,3 @@ body.mobile-detected #mobile-folder-btn {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
 }
-
