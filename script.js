@@ -101,7 +101,8 @@ let audioSource;
 // Variables del DOM
 let audioPlayer, fileInput, playPauseBtn, playIcon, prevBtn, nextBtn, progressLine, progressBarContainer, 
     currentTimeDisplay, totalTimeDisplay, songTitle, artistName, albumArtContainer, albumIcon, 
-    playlistList, playerCard, root, themeOptionsContainer, sensitivitySlider, sensitivityMultiplier;
+    playlistList, playerCard, root, themeOptionsContainer, sensitivitySlider, sensitivityMultiplier,
+    transparencySlider; // <-- AÑADIDO
 
 let skipBackBtn, skipForwardBtn; 
 let repeatBtn, repeatIcon;
@@ -165,6 +166,10 @@ const ONLINE_SONG_LIST_PATH = 'playlists.json'; // <<-- CAMBIADO
 let allOnlinePlaylists = []; // <<-- CAMBIADO (antes allOnlineSongs)
 // ===== FIN DE MODIFICACIÓN (Arreglo de URL y Playlists) =====
 let currentPlaylistSource = 'local'; // 'local', 'folder', o 'online'
+
+// ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+let vinylDisc, vinylLabel;
+// ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
 
 // --- VARS RAVE SYNC ---
 const SYNC_SERVER_URL = 'wss://rave-sync-backend.onrender.com';
@@ -261,12 +266,10 @@ function updatePlaylistUI() {
     
     playlistList.innerHTML = '';
     
-    // ===== INICIO DE CÓDIGO MODIFICADO (Mensaje de Playlist) =====
-    if (currentPlaylistSource === 'online') {
-        playlistList.innerHTML = '<li class="empty-message">Reproduciendo desde GitHub.</li>';
-        return;
-    }
-    // ===== FIN DE CÓDIGO MODIFICADO =====
+    // ===== INICIO DE LA MODIFICACIÓN (ELIMINADO) =====
+    // Se eliminó el bloque 'if (currentPlaylistSource === 'online')'
+    // que impedía que la lista se renderizara.
+    // ===== FIN DE LA MODIFICACIÓN =====
 
     if (playlist.length === 0) {
         playlistList.innerHTML = '<li class="empty-message">Carga archivos para ver la lista.</li>';
@@ -275,6 +278,7 @@ function updatePlaylistUI() {
 
     playlist.forEach((track, index) => {
         const li = document.createElement('li');
+        // 'track.name' existe tanto para pistas locales como online
         li.textContent = `${index + 1}. ${track.name}`;
         li.dataset.index = index; 
 
@@ -307,6 +311,26 @@ function applyThemeVariables(theme, themeName) {
     
     updatePlaylistUI(); 
 }
+
+// ===== INICIO: NUEVA FUNCIÓN AÑADIDA (TRANSPARENCIA) =====
+/**
+ * Aplica la opacidad a la variable CSS de los paneles.
+ * @param {number} opacityValue - Valor de 0.2 a 1.0.
+ * @param {boolean} [save=true] - Guardar en localStorage.
+ */
+function applyPanelOpacity(opacityValue, save = true) {
+    if (!root) return;
+    // Asegurarse de que el valor está en el rango correcto (0.2 a 1.0)
+    const clampedValue = Math.max(0.2, Math.min(1.0, opacityValue));
+    
+    root.style.setProperty('--panel-opacity', clampedValue);
+    
+    if (save) {
+        localStorage.setItem('userPanelOpacity', clampedValue.toString());
+    }
+}
+// ===== FIN: NUEVA FUNCIÓN AÑADIDA =====
+
 
 function applyProgressStyle(styleName, save = true) {
     if (!progressLine || !visualizerBarContainer) return;
@@ -924,6 +948,7 @@ function updateMostPlayedUI() {
  * MODIFICADO: Actualiza el footer (título y contador de "más escuchada").
  * MODIFICADO: Llama a la lógica de RAVE SYNC si es el HOST.
  * MODIFICADO: Maneja pistas locales (File) y online (Object {isOnline, url, name}).
+ * MODIFICADO: Actualiza el vinilo de fondo.
  */
 function loadTrack(index, autoPlay = false) {
     if (index >= 0 && index < playlist.length && audioPlayer) {
@@ -1021,6 +1046,11 @@ function loadTrack(index, autoPlay = false) {
                             const format = picture.format || 'image/png';
                             const dataUrl = `url(data:${format};base64,${base64String})`;
                             albumArtContainer.style.backgroundImage = dataUrl;
+                            
+                            // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+                            if (vinylLabel) vinylLabel.style.backgroundImage = dataUrl;
+                            // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
+                            
                             albumIcon.style.display = 'none';
                             albumArtUrl = `data:${format};base64,${base64String}`;
                             
@@ -1031,6 +1061,9 @@ function loadTrack(index, autoPlay = false) {
                             
                         } else {
                             albumIcon.style.display = 'block';
+                            // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+                            if (vinylLabel) vinylLabel.style.backgroundImage = 'none';
+                            // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
                             if (isDynamicThemeActive) {
                                 const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
                                 applyThemeVariables(themes[savedThemeName], savedThemeName);
@@ -1049,6 +1082,9 @@ function loadTrack(index, autoPlay = false) {
                         console.warn("Error al leer metadata online (con proxy):", error);
                         artistName.textContent = 'Artista Desconocido';
                         albumIcon.style.display = 'block';
+                        // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+                        if (vinylLabel) vinylLabel.style.backgroundImage = 'none';
+                        // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
                         updateMediaSession(basicTitle, 'Artista Desconocido', albumArtUrl);
                         
                         if (isDynamicThemeActive) {
@@ -1070,6 +1106,9 @@ function loadTrack(index, autoPlay = false) {
             } else {
                 // Fallback si jsmediatags NO ESTÁ CARGADO
                 artistName.textContent = 'Online (ID3 no cargado)';
+                // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+                if (vinylLabel) vinylLabel.style.backgroundImage = 'none';
+                // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
                 updateMediaSession(basicTitle, 'Online (ID3 no cargado)', albumArtUrl);
                 if (isDynamicThemeActive) {
                      const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
@@ -1136,6 +1175,11 @@ function loadTrack(index, autoPlay = false) {
                             const format = picture.format || 'image/png';
                             const dataUrl = `url(data:${format};base64,${base64String})`;
                             albumArtContainer.style.backgroundImage = dataUrl;
+                            
+                            // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+                            if (vinylLabel) vinylLabel.style.backgroundImage = dataUrl;
+                            // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
+                            
                             albumIcon.style.display = 'none';
                             albumArtUrl = `data:${format};base64,${base64String}`;
                             
@@ -1145,6 +1189,9 @@ function loadTrack(index, autoPlay = false) {
                             
                         } else {
                             albumIcon.style.display = 'block';
+                            // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+                            if (vinylLabel) vinylLabel.style.backgroundImage = 'none';
+                            // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
                             if (isDynamicThemeActive) {
                                 const savedThemeName = localStorage.getItem('userTheme') || 'theme-dark';
                                 applyThemeVariables(themes[savedThemeName], savedThemeName);
@@ -1168,6 +1215,9 @@ function loadTrack(index, autoPlay = false) {
                         if (headerSongTitle) headerSongTitle.textContent = title; 
                         if (footerSongTitle) footerSongTitle.textContent = title; // <-- FOOTER
                         albumIcon.style.display = 'block';
+                        // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+                        if (vinylLabel) vinylLabel.style.backgroundImage = 'none';
+                        // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
                         
                         // ===== INICIO LÓGICA DE LETRAS (MODIFICADO) =====
                         if (lrcFile) {
@@ -1199,6 +1249,9 @@ function loadTrack(index, autoPlay = false) {
                 const title = track.name.replace(/\.[^/.]+$/, "");
                 songTitle.textContent = title;
                 artistName.textContent = 'Librería ID3 no cargada';
+                // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+                if (vinylLabel) vinylLabel.style.backgroundImage = 'none';
+                // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
                 if (headerSongTitle) headerSongTitle.textContent = title; 
                 if (footerSongTitle) footerSongTitle.textContent = title; // <-- FOOTER
 
@@ -2026,12 +2079,13 @@ function playOnlinePlaylist(event) { // <<-- CAMBIADO
     currentPlaylistSource = 'online';
 
     // 3. Limpiar la playlist local/folder UI
-    if (playlistList) playlistList.innerHTML = '<li class="empty-message">Reproduciendo desde GitHub...</li>';
+    // Esta línea se sobrescribirá casi inmediatamente por updatePlaylistUI()
+    if (playlistList) playlistList.innerHTML = '<li class="empty-message">Cargando playlist online...</li>';
     if (foldersList) foldersList.innerHTML = '<li class="empty-message">Carga local deshabilitada.</li>';
 
     // 4. Cargar la PRIMERA canción (índice 0) de esta *nueva* playlist
     initAudioContext();
-    loadTrack(0, true);
+    loadTrack(0, true); // Esto llamará a updatePlaylistUI() y mostrará la lista
 }
 // ===== FIN DE MODIFICACIÓN (Petición del usuario) =====
 
@@ -2073,6 +2127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     root = document.documentElement;
     themeOptionsContainer = document.getElementById('theme-options');
     sensitivitySlider = document.getElementById('sensitivity-slider');
+    transparencySlider = document.getElementById('transparency-slider'); // <-- AÑADIDO
 
     progressStylePanel = document.getElementById('progress-style-panel');
     progressStyleOptions = document.getElementById('progress-style-options');
@@ -2148,6 +2203,11 @@ document.addEventListener('DOMContentLoaded', () => {
     searchResultsList = document.getElementById('search-results-list');
     searchStatus = document.getElementById('search-status');
     // ===== FIN DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
+
+    // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+    vinylDisc = document.querySelector('.vinyl-disc');
+    vinylLabel = document.querySelector('.vinyl-label');
+    // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
 
 
     sensitivityMultiplier = parseFloat(getComputedStyle(root).getPropertyValue('--sensitivity-multiplier'));
@@ -2235,6 +2295,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const savedDynamicThemeState = localStorage.getItem('dynamicThemeActive');
     isDynamicThemeActive = (savedDynamicThemeState !== 'false'); // Default a true
     if (dynamicThemeToggle) dynamicThemeToggle.checked = isDynamicThemeActive;
+    
+    // 2.10 Cargar Transparencia (AÑADIDO)
+    const savedOpacity = localStorage.getItem('userPanelOpacity');
+    let initialOpacity = 1.0;
+    if (savedOpacity !== null) {
+        initialOpacity = parseFloat(savedOpacity);
+    }
+    applyPanelOpacity(initialOpacity, false); // Cargar sin guardar
+    if (transparencySlider) {
+        transparencySlider.value = initialOpacity * 100; // El slider es 20-100
+    }
     
 
     // 3. LISTENERS
@@ -2417,6 +2488,17 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
+    
+    // ===== INICIO: LISTENER DE TRANSPARENCIA (AÑADIDO) =====
+    if (transparencySlider) {
+        transparencySlider.addEventListener('input', (event) => {
+            // El slider va de 20 a 100. Lo convertimos a 0.2 - 1.0
+            const opacityValue = event.target.value / 100;
+            applyPanelOpacity(opacityValue, true); // Aplicar y guardar
+        });
+    }
+    // ===== FIN: LISTENER DE TRANSPARENCIA =====
+
 
     // Listener de Estilo de Progreso
     progressStyleOptions.addEventListener('click', (event) => {
@@ -2608,10 +2690,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isHost && currentRoomId) return; // Bloquear cliente
         // ===== FIN SYNC =====
         
-        // ===== INICIO DE CÓDIGO MODIFICADO =====
-        // Si la playlist es online, esta UI no debería hacer nada
-        if (currentPlaylistSource === 'online') return;
-        // ===== FIN DE CÓDIGO MODIFICADO =====
+        // ===== INICIO DE LA MODIFICACIÓN (ELIMINADO) =====
+        // Se eliminó el bloque 'if (currentPlaylistSource === 'online')'
+        // que impedía hacer clic en la lista.
+        // ===== FIN DE LA MODIFICACIÓN =====
 
         const li = event.target.closest('li');
         if (li && li.dataset.index && !li.classList.contains('empty-message')) {
@@ -2758,6 +2840,10 @@ document.addEventListener('DOMContentLoaded', () => {
         playIcon.textContent = 'pause';
         requestAnimationFrame(visualize);
         
+        // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+        if (vinylDisc) vinylDisc.classList.add('spinning');
+        // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
+        
         // ===== INICIO SYNC (AÑADIDO) =====
         if (isHost && currentRoomId) {
             sendFullSyncState();
@@ -2768,6 +2854,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     audioPlayer.addEventListener('pause', () => {
         playIcon.textContent = 'play_arrow';
+        
+        // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+        if (vinylDisc) vinylDisc.classList.remove('spinning');
+        // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
         
         // ===== INICIO SYNC (AÑADIDO) =====
         if (isHost && currentRoomId) {
@@ -2796,6 +2886,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (headerSongTitle) headerSongTitle.textContent = 'No hay canción';
                     if (footerSongTitle) footerSongTitle.textContent = '--'; // <-- FOOTER
                     if (footerLyricPhrase) footerLyricPhrase.textContent = '...'; // <-- FOOTER
+                    
+                    // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+                    if (vinylDisc) vinylDisc.classList.remove('spinning');
+                    // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
                 }
             }
         } else {
@@ -2805,6 +2899,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (headerSongTitle) headerSongTitle.textContent = 'No hay canción';
             if (footerSongTitle) footerSongTitle.textContent = '--'; // <-- FOOTER
             if (footerLyricPhrase) footerLyricPhrase.textContent = '...'; // <-- FOOTER
+            
+            // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
+            if (vinylDisc) vinylDisc.classList.remove('spinning');
+            // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
         }
     });
     
