@@ -915,6 +915,78 @@ async function fetchLyrics(artist, title, trackIndex, bypassCache = false) { // 
 // ===== FIN: LÓGICA DE BÚSQUEDA SÓLIDA =====
 
 
+// ===== INICIO: NUEVA FUNCIÓN PARA LETRAS ONLINE (LRC > CACHÉ > API) =====
+
+/**
+ * (NUEVA FUNCIÓN AÑADIDA)
+ * Intenta cargar primero el .lrc de GitHub, si falla, usa fetchLyrics (caché/API).
+ * Solo para canciones online.
+ * @param {string} artist - El artista (para fallback)
+ * @param {string} title - El título (para fallback)
+ * @param {object} track - El objeto de la canción online (contiene .url)
+ * @param {number} trackIndex - El índice actual (para race conditions)
+ */
+async function loadOnlineLyrics(artist, title, track, trackIndex) {
+    // (Race condition check)
+    if (trackIndex !== currentTrackIndex) return;
+
+    // 1. Resetear UI de letras
+    if (lyricsList) lyricsList.innerHTML = '<li class="empty-message">Buscando letra...</li>';
+    if (footerLyricPhrase) footerLyricPhrase.textContent = 'Buscando letra...';
+    if (lrcBadgeElement) lrcBadgeElement.style.display = 'none';
+    if (retryLyricsBtn) retryLyricsBtn.style.display = 'none';
+    currentLyrics = [];
+    currentLyricIndex = -1;
+
+    // 2. Construir la URL del .lrc (reemplaza .mp3 por .lrc al final de la URL)
+    // Solo lo intentamos si es un archivo .mp3
+    if (!track.url.toLowerCase().endsWith('.mp3')) {
+        // No es un .mp3, saltar directo al fallback de API/Caché
+        fetchLyrics(artist, title, trackIndex);
+        return;
+    }
+    
+    const lrcUrl = track.url.replace(/\.mp3$/i, '.lrc');
+
+    // 3. Intentar fetch del .lrc desde GitHub
+    try {
+        const response = await fetch(lrcUrl);
+
+        // (Race condition check)
+        if (trackIndex !== currentTrackIndex) return;
+
+        if (response.ok) {
+            // ¡ÉXITO! .lrc encontrado
+            console.log("LRC online encontrado:", lrcUrl);
+            const lrcContent = await response.text();
+            
+            currentLyrics = parseLRC(lrcContent); // Parsear
+            displayLyrics(currentLyrics); // Mostrar
+            
+            if (lrcBadgeElement) lrcBadgeElement.style.display = 'inline';
+            if (retryLyricsBtn) retryLyricsBtn.style.display = 'none';
+            
+            const phrase = findPopularPhrase(currentLyrics);
+            if (footerLyricPhrase) footerLyricPhrase.textContent = phrase || '...';
+
+        } else {
+            // FALLBACK 1: .lrc no encontrado (404)
+            console.log(`LRC online no encontrado (404) en ${lrcUrl}. Buscando en API/Caché.`);
+            fetchLyrics(artist, title, trackIndex);
+        }
+    } catch (error) {
+        // FALLBACK 2: Error de red (CORS, etc.)
+        console.error(`Error al buscar LRC online (${lrcUrl}). Buscando en API/Caché:`, error);
+        
+        // (Race condition check)
+        if (trackIndex !== currentTrackIndex) return;
+        
+        fetchLyrics(artist, title, trackIndex);
+    }
+}
+// ===== FIN: NUEVA FUNCIÓN PARA LETRAS ONLINE =====
+
+
 // ===================================
 // D. FUNCIONES DEL REPRODUCTOR Y VISUALIZADOR
 // ===================================
@@ -1035,10 +1107,10 @@ function loadTrack(index, autoPlay = false) {
                         if (headerSongTitle) headerSongTitle.textContent = title; 
                         if (footerSongTitle) footerSongTitle.textContent = title;
 
-                        // Re-buscar letras si encontramos un artista/título mejor
-                        // (O si es la primera vez que se llama)
-                        // [MODIFICADO] El 'false' final es implícito (no bypass)
-                        fetchLyrics(artist, title, currentTrackIndex); 
+                        // ===== INICIO DE MODIFICACIÓN (LETRA ONLINE) =====
+                        // (NUEVA LÓGICA) Intentar buscar .lrc online, si falla, usa fetchLyrics
+                        loadOnlineLyrics(artist, title, track, currentTrackIndex);
+                        // ===== FIN DE MODIFICACIÓN =====
                         
                         if (tags.picture) {
                             const picture = tags.picture;
@@ -1098,8 +1170,10 @@ function loadTrack(index, autoPlay = false) {
                             else stopSyncInterval();
                         }
                         
-                        // ===== AÑADIDO: Llamada de fallback si jsmediatags falla =====
-                        fetchLyrics('Artista Desconocido', basicTitle, currentTrackIndex);
+                        // ===== INICIO DE MODIFICACIÓN (LETRA ONLINE) =====
+                        // (NUEVA LÓGICA) Intentar buscar .lrc online, si falla, usa fetchLyrics
+                        loadOnlineLyrics('Artista Desconocido', basicTitle, track, currentTrackIndex);
+                        // ===== FIN DE MODIFICACIÓN =====
                         
                     }
                 });
@@ -1120,8 +1194,10 @@ function loadTrack(index, autoPlay = false) {
                     else stopSyncInterval();
                 }
                 
-                // ===== AÑADIDO: Llamada de fallback si jsmediatags no existe =====
-                fetchLyrics('Online (ID3 no cargado)', basicTitle, currentTrackIndex);
+                // ===== INICIO DE MODIFICACIÓN (LETRA ONLINE) =====
+                // (NUEVA LÓGICA) Intentar buscar .lrc online, si falla, usa fetchLyrics
+                loadOnlineLyrics('Online (ID3 no cargado)', basicTitle, track, currentTrackIndex);
+                // ===== FIN DE MODIFICACIÓN =====
             }
             // --- FIN DE MODIFICACIÓN (Arreglo de metadatos online) ---
 
