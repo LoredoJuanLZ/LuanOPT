@@ -12,7 +12,11 @@
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 </head>
 <body>
-
+<div id="vinyl-background">
+        <div class="vinyl-disc">
+            <div class="vinyl-label"></div>
+        </div>
+    </div>
     <aside id="sidebar-nav" class="sidebar">
         <div class="sidebar-header">
             <h3>Mostrar/Ocultar</h3>
@@ -204,6 +208,12 @@
                 </div>
             </div>
 
+            <div class="customization-panel" id="transparency-panel">
+                <h3>Transparencia</h3>
+                <div class="slider-container-horizontal">
+                    <input type="range" id="transparency-slider" min="20" max="100" value="100" step="1">
+                </div>
+            </div>
             <div class="customization-panel" id="progress-style-panel">
                 <h3>Estilo de Pulso</h3>
                 <div class="color-options" id="progress-style-options">
