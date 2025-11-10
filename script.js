@@ -181,6 +181,11 @@ let syncInterval = null;
 let createRoomBtn, joinRoomBtn, joinRoomInput, roomCodeDisplay, syncStatusElement; // 'syncStatus' renombrado a 'syncStatusElement' para evitar conflicto
 // ===== FIN DE CÓDIGO AÑADIDO/MODIFICADO (ONLINE SYNC) =====
 
+// ===== INICIO DE CÓDIGO AÑADIDO (TADB Y CARTAS) =====
+const TADB_API_KEY = '2'; // API Key pública de TheAudioDB para desarrollo
+let card1, card2, card3;
+// ===== FIN DE CÓDIGO AÑADIDO (TADB Y CARTAS) =====
+
 
 // ====================================================================
 // B. FUNCIONES DE UI Y TEMAS
@@ -430,6 +435,114 @@ function applyLyricEffect(effectName, save = true) {
     }
 }
 // ===== FIN DE FUNCIONES AÑADIDAS =====
+
+// ===== INICIO DE FUNCIONES AÑADIDAS (THE AUDIO DB) =====
+
+/**
+ * Limpia el nombre del artista para la búsqueda en la API.
+ * Quita todo después de un ';' o '/'.
+ * @param {string} artist - El nombre del artista (ej. "Artista 1; Artista 2" o "Artista 1 / Artista 2")
+ * @returns {string} - El nombre del artista limpiado (ej. "Artista 1")
+ */
+function cleanArtistName(artist) {
+    if (!artist) return 'Artista Desconocido';
+    // Divide por punto y coma O por barra diagonal
+    return artist.split(/[;/]/)[0].trim();
+}
+
+/**
+ * Limpia el título de la canción para la búsqueda en la API.
+ * Quita todo lo que esté entre paréntesis (...) o corchetes [...].
+ * @param {string} title - El título de la canción (ej. "Mi Canción (Live)")
+ * @returns {string} - El título limpiado (ej. "Mi Canción")
+ */
+function cleanSongTitle(title) {
+    if (!title) return 'Título Desconocido';
+    // Reemplaza paréntesis y corchetes (y su contenido) por un string vacío
+    return title.replace(/\(.*?\)|\[.*?\]/g, '').trim();
+}
+
+/**
+ * Actualiza las imágenes de fondo de las 3 cartas animadas.
+ * @param {object} images - Objeto con { albumArt, fanArt, artistArt }
+ */
+function updateCardImages(images) {
+    if (!card1 || !card2 || !card3) {
+        console.warn("Referencias a las cartas no encontradas.");
+        return;
+    }
+    
+    // Asigna las imágenes. Si la URL es null o undefined, 'none' resetea el fondo.
+    // card-1 (La del frente) = Carátula del Álbum
+    card1.style.backgroundImage = images.albumArt ? `url(${images.albumArt})` : 'none';
+    
+    // card-2 (La de en medio) = Fan Art
+    card2.style.backgroundImage = images.fanArt ? `url(${images.fanArt})` : 'none';
+    
+    // card-3 (La de atrás) = Imagen del Artista
+    card3.style.backgroundImage = images.artistArt ? `url(${images.artistArt})` : 'none';
+}
+
+/**
+ * Busca imágenes en TheAudioDB usando el artista y la canción.
+ * @param {string} artist - Nombre del artista (limpiado)
+ * @param {string} song - Título de la canción (limpiado)
+ * @returns {Promise<object>} - Promesa que resuelve a { albumArt, fanArt, artistArt }
+ */
+async function fetchTADBImages(artist, song) {
+    let images = { albumArt: null, fanArt: null, artistArt: null };
+    
+    if (!artist || artist === 'Artista Desconocido') {
+        return images; // No buscar si no hay artista
+    }
+
+    try {
+        // 1. Buscar el Artista (para strArtistThumb y strArtistFanart)
+        const artistUrl = `https://www.theaudiodb.com/api/v1/json/${TADB_API_KEY}/search.php?s=${encodeURIComponent(artist)}`;
+        const artistResponse = await fetch(artistUrl);
+        const artistData = await artistResponse.json();
+
+        if (artistData.artists) {
+            const artistInfo = artistData.artists[0];
+            images.artistArt = artistInfo.strArtistThumb || null;
+            // Usamos el fanart del artista como fallback principal
+            images.fanArt = artistInfo.strArtistFanart || null; 
+        }
+
+        // 2. Buscar la Canción (para strTrackThumb y strTrackFanart)
+        // Esto es más específico, por lo que sobrescribe si se encuentra
+        if (song && song !== 'Título Desconocido') {
+            const trackUrl = `https://www.theaudiodb.com/api/v1/json/${TADB_API_KEY}/searchtrack.php?s=${encodeURIComponent(artist)}&t=${encodeURIComponent(song)}`;
+            const trackResponse = await fetch(trackUrl);
+            const trackData = await trackResponse.json();
+
+            if (trackData.track) {
+                const trackInfo = trackData.track[0];
+                // Sobrescribir la carátula del álbum con la específica de la canción
+                if (trackInfo.strTrackThumb && trackInfo.strTrackThumb !== "") {
+                    images.albumArt = trackInfo.strTrackThumb;
+                }
+                // Sobrescribir el fanart con el específico de la canción (si existe)
+                if (trackInfo.strTrackFanart && trackInfo.strTrackFanart !== "") {
+                    images.fanArt = trackInfo.strTrackFanart;
+                }
+            }
+        }
+        
+    } catch (error) {
+        console.error("Error al buscar imágenes en TheAudioDB:", error);
+    }
+    
+    // Fallback: Si no se encontró carátula de álbum (strTrackThumb),
+    // pero SÍ se encontró una foto del artista (strArtistThumb),
+    // usar la foto del artista como carátula.
+    if (!images.albumArt && images.artistArt) {
+        images.albumArt = images.artistArt;
+    }
+
+    return images;
+}
+// ===== FIN DE FUNCIONES AÑADIDAS (THE AUDIO DB) =====
 
 
 // ===================================
@@ -1021,6 +1134,7 @@ function updateMostPlayedUI() {
  * MODIFICADO: Llama a la lógica de RAVE SYNC si es el HOST.
  * MODIFICADO: Maneja pistas locales (File) y online (Object {isOnline, url, name}).
  * MODIFICADO: Actualiza el vinilo de fondo.
+ * MODIFICADO: Llama a la búsqueda de imágenes de TheAudioDB.
  */
 function loadTrack(index, autoPlay = false) {
     if (index >= 0 && index < playlist.length && audioPlayer) {
@@ -1031,6 +1145,11 @@ function loadTrack(index, autoPlay = false) {
         if (lrcBadgeElement) lrcBadgeElement.style.display = 'none'; // <-- OCULTAR BADGE
         if (retryLyricsBtn) retryLyricsBtn.style.display = 'none'; // <-- OCULTAR BOTÓN REINTENTAR
         if (footerLyricPhrase) footerLyricPhrase.textContent = '...'; // <-- FOOTER
+        
+        // ===== INICIO: RESETEAR CARTAS (AÑADIDO) =====
+        // Resetea las imágenes de las cartas a "nada"
+        updateCardImages({ albumArt: null, fanArt: null, artistArt: null });
+        // ===== FIN: RESETEAR CARTAS =====
         
         currentTrackIndex = index;
         const track = playlist[currentTrackIndex];
@@ -1107,6 +1226,12 @@ function loadTrack(index, autoPlay = false) {
                         if (headerSongTitle) headerSongTitle.textContent = title; 
                         if (footerSongTitle) footerSongTitle.textContent = title;
 
+                        // ===== INICIO: BÚSQUEDA TADB (AÑADIDO) =====
+                        const cleanedArtist = cleanArtistName(artist);
+                        const cleanedTitle = cleanSongTitle(title);
+                        fetchTADBImages(cleanedArtist, cleanedTitle).then(updateCardImages);
+                        // ===== FIN: BÚSQUEDA TADB =====
+                        
                         // ===== INICIO DE MODIFICACIÓN (LETRA ONLINE) =====
                         // (NUEVA LÓGICA) Intentar buscar .lrc online, si falla, usa fetchLyrics
                         loadOnlineLyrics(artist, title, track, currentTrackIndex);
@@ -1152,6 +1277,11 @@ function loadTrack(index, autoPlay = false) {
                     onError: function(error) {
                         // Fallback si jsmediatags falla (incluso con el proxy)
                         console.warn("Error al leer metadata online (con proxy):", error);
+                        // --- Añadido (para TADB) ---
+                        const title = basicTitle;
+                        const artist = 'Artista Desconocido';
+                        // --- Fin Añadido ---
+                        
                         artistName.textContent = 'Artista Desconocido';
                         albumIcon.style.display = 'block';
                         // ===== INICIO DE CÓDIGO AÑADIDO (VINILO) =====
@@ -1169,6 +1299,12 @@ function loadTrack(index, autoPlay = false) {
                             if (autoPlay) startSyncInterval();
                             else stopSyncInterval();
                         }
+                        
+                        // ===== INICIO: BÚSQUEDA TADB (AÑADIDO) =====
+                        const cleanedArtist = cleanArtistName(artist);
+                        const cleanedTitle = cleanSongTitle(title);
+                        fetchTADBImages(cleanedArtist, cleanedTitle).then(updateCardImages);
+                        // ===== FIN: BÚSQUEDA TADB =====
                         
                         // ===== INICIO DE MODIFICACIÓN (LETRA ONLINE) =====
                         // (NUEVA LÓGICA) Intentar buscar .lrc online, si falla, usa fetchLyrics
@@ -1193,6 +1329,12 @@ function loadTrack(index, autoPlay = false) {
                     if (autoPlay) startSyncInterval();
                     else stopSyncInterval();
                 }
+                
+                // ===== INICIO: BÚSQUEDA TADB (AÑADIDO) =====
+                const cleanedArtist = cleanArtistName('Online (ID3 no cargado)');
+                const cleanedTitle = cleanSongTitle(basicTitle);
+                fetchTADBImages(cleanedArtist, cleanedTitle).then(updateCardImages);
+                // ===== FIN: BÚSQUEDA TADB =====
                 
                 // ===== INICIO DE MODIFICACIÓN (LETRA ONLINE) =====
                 // (NUEVA LÓGICA) Intentar buscar .lrc online, si falla, usa fetchLyrics
@@ -1234,6 +1376,12 @@ function loadTrack(index, autoPlay = false) {
                         artistName.textContent = artist; // Mostramos el string completo
                         if (headerSongTitle) headerSongTitle.textContent = title; 
                         if (footerSongTitle) footerSongTitle.textContent = title; // <-- FOOTER
+                        
+                        // ===== INICIO: BÚSQUEDA TADB (AÑADIDO) =====
+                        const cleanedArtist = cleanArtistName(artist);
+                        const cleanedTitle = cleanSongTitle(title);
+                        fetchTADBImages(cleanedArtist, cleanedTitle).then(updateCardImages);
+                        // ===== FIN: BÚSQUEDA TADB =====
                         
                         // ===== INICIO LÓGICA DE LETRAS (MODIFICADO) =====
                         if (lrcFile) {
@@ -1295,6 +1443,12 @@ function loadTrack(index, autoPlay = false) {
                         if (vinylLabel) vinylLabel.style.backgroundImage = 'none';
                         // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
                         
+                        // ===== INICIO: BÚSQUEDA TADB (AÑADIDO) =====
+                        const cleanedArtist = cleanArtistName(artist);
+                        const cleanedTitle = cleanSongTitle(title);
+                        fetchTADBImages(cleanedArtist, cleanedTitle).then(updateCardImages);
+                        // ===== FIN: BÚSQUEDA TADB =====
+                        
                         // ===== INICIO LÓGICA DE LETRAS (MODIFICADO) =====
                         if (lrcFile) {
                             // 1. Si se encontró .lrc local, usarlo.
@@ -1331,6 +1485,12 @@ function loadTrack(index, autoPlay = false) {
                 if (headerSongTitle) headerSongTitle.textContent = title; 
                 if (footerSongTitle) footerSongTitle.textContent = title; // <-- FOOTER
 
+                // ===== INICIO: BÚSQUEDA TADB (AÑADIDO) =====
+                const cleanedArtist = cleanArtistName('Librería ID3 no cargada');
+                const cleanedTitle = cleanSongTitle(title);
+                fetchTADBImages(cleanedArtist, cleanedTitle).then(updateCardImages);
+                // ===== FIN: BÚSQUEDA TADB =====
+                
                 // ===== INICIO LÓGICA DE LETRAS (MODIFICADO) =====
                 if (lrcFile) {
                     loadLyrics(lrcFile); // <-- Ya actualiza el footer
@@ -1766,10 +1926,134 @@ function setupMediaSessionHandlers() {
         });
     }
 }
+// ====================================================================
+// H. INICIALIZACIÓN (ACTUALIZADO)
+// ====================================================================
 
-// ====================================================================
+// ===== INICIO DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
+
+// ===== INICIO DE MODIFICACIÓN (Petición del usuario) =====
+/**
+ * (MODIFICADO) Almacena la lista de *playlists* del repositorio de GitHub.
+ */
+async function fetchAllOnlinePlaylists() { // <<-- CAMBIADO
+    if (searchStatus) searchStatus.style.display = 'inline-block';
+    if (searchResultsList) searchResultsList.innerHTML = '<li class="empty-message">Cargando playlists online...</li>';
+    try {
+        // Carga el nuevo archivo playlists.json
+        const response = await fetch(`${GITHUB_REPO_URL}${ONLINE_SONG_LIST_PATH}`);
+        if (!response.ok) {
+            throw new Error(`No se pudo cargar ${ONLINE_SONG_LIST_PATH}`);
+        }
+        const playlistData = await response.json(); // Esto es un array de objetos
+        
+        if (Array.isArray(playlistData)) {
+            allOnlinePlaylists = playlistData; // Almacenamos los datos de las playlists
+            if (searchResultsList) searchResultsList.innerHTML = '<li class="empty-message">Busca para ver resultados.</li>';
+        } else {
+            throw new Error('El archivo playlists.json no tiene el formato de array esperado.');
+        }
+        
+    } catch (error) {
+        console.error("Error al cargar la lista de playlists online:", error);
+        if (searchResultsList) searchResultsList.innerHTML = `<li class="empty-message">Error al cargar la base de datos.<br>${error.message}</li>`;
+    } finally {
+        if (searchStatus) searchStatus.style.display = 'none';
+    }
+}
+
+/**
+ * (MODIFICADO) Filtra la lista de *playlists* online basándose en el input.
+ */
+function performSearch() {
+    if (!searchInput || !searchResultsList) return;
+    const query = searchInput.value.toLowerCase().trim();
+    if (query.length < 2) {
+        searchResultsList.innerHTML = '<li class="empty-message">Escribe al menos 2 letras.</li>';
+        return;
+    }
+
+    // Busca en la lista de playlists por el nombre
+    const results = allOnlinePlaylists.filter(playlist => 
+        playlist.name.toLowerCase().includes(query)
+    ).slice(0, 50); // Limitar a 50 resultados
+
+    searchResultsList.innerHTML = '';
+    if (results.length === 0) {
+        searchResultsList.innerHTML = '<li class="empty-message">No se encontraron carpetas.</li>';
+        return;
+    }
+
+    results.forEach((playlist, index) => {
+        // Guardar el índice original de la lista COMPLETA
+        const originalIndex = allOnlinePlaylists.findIndex(p => p.name === playlist.name);
+        
+        const li = document.createElement('li');
+        // Mostrar un icono de carpeta
+        li.innerHTML = `<span class="material-icons">folder</span> ${playlist.name}`;
+        li.title = `Reproducir carpeta: ${playlist.name}`;
+        li.dataset.originalIndex = originalIndex; // Clave para cargar la playlist
+        searchResultsList.appendChild(li);
+    });
+}
+
+/**
+ * (MODIFICADO) Se dispara al hacer clic en un resultado de búsqueda (carpeta).
+ * Crea la playlist online desde la carpeta seleccionada y la reproduce.
+ */
+function playOnlinePlaylist(event) { // <<-- CAMBIADO
+    // ===== INICIO SYNC (AÑADIDO) =====
+    if (!isHost && currentRoomId) return; // Bloquear cliente
+    // ===== FIN SYNC =====
+    
+    const targetLi = event.target.closest('li');
+    if (!targetLi || targetLi.classList.contains('empty-message') || targetLi.dataset.originalIndex === undefined) {
+        return;
+    }
+
+    const originalIndex = parseInt(targetLi.dataset.originalIndex, 10);
+    const selectedPlaylist = allOnlinePlaylists[originalIndex]; // Obtiene el objeto {name, folderName, songs}
+
+    if (!selectedPlaylist || !selectedPlaylist.songs || selectedPlaylist.songs.length === 0) {
+        console.error("Carpeta online inválida o vacía");
+        alert("Esta carpeta parece estar vacía o no es válida.");
+        return;
+    }
+
+    // 1. Crear la nueva playlist online
+    // La playlist se construye a partir del array 'songs' de la carpeta seleccionada
+    playlist = selectedPlaylist.songs.map(songFileName => {
+        // Construir la URL completa: URL_Base + NombreCarpeta + NombreArchivo
+        // LA URL BASE YA APUNTA A raw.githubusercontent.com/.../main/
+        const songUrl = `${GITHUB_REPO_URL}${encodeURIComponent(selectedPlaylist.folderName)}/${encodeURIComponent(songFileName)}`;
+        
+        return {
+            name: songFileName.replace(/\.[^/.]+$/, "").replace(/_/g, ' '), // Nombre legible
+            isOnline: true,
+            url: songUrl
+        };
+    });
+
+    // 2. Establecer la fuente de la playlist actual
+    currentPlaylistSource = 'online';
+
+    // 3. Limpiar la playlist local/folder UI
+    // Esta línea se sobrescribirá casi inmediatamente por updatePlaylistUI()
+    if (playlistList) playlistList.innerHTML = '<li class="empty-message">Cargando playlist online...</li>';
+    if (foldersList) foldersList.innerHTML = '<li class="empty-message">Carga local deshabilitada.</li>';
+
+    // 4. Cargar la PRIMERA canción (índice 0) de esta *nueva* playlist
+    initAudioContext();
+    loadTrack(0, true); // Esto llamará a updatePlaylistUI() y mostrará la lista
+}
+// ===== FIN DE MODIFICACIÓN (Petición del usuario) =====
+
+// ===== FIN DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
+
+
+// ===================================
 // I. FUNCIONES DE ECUALIZADOR (AÑADIDO)
-// ====================================================================
+// ===================================
 
 const EQ_PRESETS = {
     'custom': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -2043,131 +2327,6 @@ function extractAndApplyDynamicTheme(imageUrl) {
 }
 
 
-// ====================================================================
-// H. INICIALIZACIÓN (ACTUALIZADO)
-// ====================================================================
-
-// ===== INICIO DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
-
-// ===== INICIO DE MODIFICACIÓN (Petición del usuario) =====
-/**
- * (MODIFICADO) Almacena la lista de *playlists* del repositorio de GitHub.
- */
-async function fetchAllOnlinePlaylists() { // <<-- CAMBIADO
-    if (searchStatus) searchStatus.style.display = 'inline-block';
-    if (searchResultsList) searchResultsList.innerHTML = '<li class="empty-message">Cargando playlists online...</li>';
-    try {
-        // Carga el nuevo archivo playlists.json
-        const response = await fetch(`${GITHUB_REPO_URL}${ONLINE_SONG_LIST_PATH}`);
-        if (!response.ok) {
-            throw new Error(`No se pudo cargar ${ONLINE_SONG_LIST_PATH}`);
-        }
-        const playlistData = await response.json(); // Esto es un array de objetos
-        
-        if (Array.isArray(playlistData)) {
-            allOnlinePlaylists = playlistData; // Almacenamos los datos de las playlists
-            if (searchResultsList) searchResultsList.innerHTML = '<li class="empty-message">Busca para ver resultados.</li>';
-        } else {
-            throw new Error('El archivo playlists.json no tiene el formato de array esperado.');
-        }
-        
-    } catch (error) {
-        console.error("Error al cargar la lista de playlists online:", error);
-        if (searchResultsList) searchResultsList.innerHTML = `<li class="empty-message">Error al cargar la base de datos.<br>${error.message}</li>`;
-    } finally {
-        if (searchStatus) searchStatus.style.display = 'none';
-    }
-}
-
-/**
- * (MODIFICADO) Filtra la lista de *playlists* online basándose en el input.
- */
-function performSearch() {
-    if (!searchInput || !searchResultsList) return;
-    const query = searchInput.value.toLowerCase().trim();
-    if (query.length < 2) {
-        searchResultsList.innerHTML = '<li class="empty-message">Escribe al menos 2 letras.</li>';
-        return;
-    }
-
-    // Busca en la lista de playlists por el nombre
-    const results = allOnlinePlaylists.filter(playlist => 
-        playlist.name.toLowerCase().includes(query)
-    ).slice(0, 50); // Limitar a 50 resultados
-
-    searchResultsList.innerHTML = '';
-    if (results.length === 0) {
-        searchResultsList.innerHTML = '<li class="empty-message">No se encontraron carpetas.</li>';
-        return;
-    }
-
-    results.forEach((playlist, index) => {
-        // Guardar el índice original de la lista COMPLETA
-        const originalIndex = allOnlinePlaylists.findIndex(p => p.name === playlist.name);
-        
-        const li = document.createElement('li');
-        // Mostrar un icono de carpeta
-        li.innerHTML = `<span class="material-icons">folder</span> ${playlist.name}`;
-        li.title = `Reproducir carpeta: ${playlist.name}`;
-        li.dataset.originalIndex = originalIndex; // Clave para cargar la playlist
-        searchResultsList.appendChild(li);
-    });
-}
-
-/**
- * (MODIFICADO) Se dispara al hacer clic en un resultado de búsqueda (carpeta).
- * Crea la playlist online desde la carpeta seleccionada y la reproduce.
- */
-function playOnlinePlaylist(event) { // <<-- CAMBIADO
-    // ===== INICIO SYNC (AÑADIDO) =====
-    if (!isHost && currentRoomId) return; // Bloquear cliente
-    // ===== FIN SYNC =====
-    
-    const targetLi = event.target.closest('li');
-    if (!targetLi || targetLi.classList.contains('empty-message') || targetLi.dataset.originalIndex === undefined) {
-        return;
-    }
-
-    const originalIndex = parseInt(targetLi.dataset.originalIndex, 10);
-    const selectedPlaylist = allOnlinePlaylists[originalIndex]; // Obtiene el objeto {name, folderName, songs}
-
-    if (!selectedPlaylist || !selectedPlaylist.songs || selectedPlaylist.songs.length === 0) {
-        console.error("Carpeta online inválida o vacía");
-        alert("Esta carpeta parece estar vacía o no es válida.");
-        return;
-    }
-
-    // 1. Crear la nueva playlist online
-    // La playlist se construye a partir del array 'songs' de la carpeta seleccionada
-    playlist = selectedPlaylist.songs.map(songFileName => {
-        // Construir la URL completa: URL_Base + NombreCarpeta + NombreArchivo
-        // LA URL BASE YA APUNTA A raw.githubusercontent.com/.../main/
-        const songUrl = `${GITHUB_REPO_URL}${encodeURIComponent(selectedPlaylist.folderName)}/${encodeURIComponent(songFileName)}`;
-        
-        return {
-            name: songFileName.replace(/\.[^/.]+$/, "").replace(/_/g, ' '), // Nombre legible
-            isOnline: true,
-            url: songUrl
-        };
-    });
-
-    // 2. Establecer la fuente de la playlist actual
-    currentPlaylistSource = 'online';
-
-    // 3. Limpiar la playlist local/folder UI
-    // Esta línea se sobrescribirá casi inmediatamente por updatePlaylistUI()
-    if (playlistList) playlistList.innerHTML = '<li class="empty-message">Cargando playlist online...</li>';
-    if (foldersList) foldersList.innerHTML = '<li class="empty-message">Carga local deshabilitada.</li>';
-
-    // 4. Cargar la PRIMERA canción (índice 0) de esta *nueva* playlist
-    initAudioContext();
-    loadTrack(0, true); // Esto llamará a updatePlaylistUI() y mostrará la lista
-}
-// ===== FIN DE MODIFICACIÓN (Petición del usuario) =====
-
-// ===== FIN DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
-
-
 document.addEventListener('DOMContentLoaded', () => {
 
     // ===== INICIO: DETECCIÓN MÓVIL (AÑADIDO) =====
@@ -2284,6 +2443,12 @@ document.addEventListener('DOMContentLoaded', () => {
     vinylDisc = document.querySelector('.vinyl-disc');
     vinylLabel = document.querySelector('.vinyl-label');
     // ===== FIN DE CÓDIGO AÑADIDO (VINILO) =====
+
+    // ===== INICIO DE CÓDIGO AÑADIDO (TADB Y CARTAS) =====
+    card1 = document.querySelector('.card-1');
+    card2 = document.querySelector('.card-2');
+    card3 = document.querySelector('.card-3');
+    // ===== FIN DE CÓDIGO AÑADIDO (TADB Y CARTAS) =====
 
 
     sensitivityMultiplier = parseFloat(getComputedStyle(root).getPropertyValue('--sensitivity-multiplier'));
