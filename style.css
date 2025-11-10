@@ -1824,3 +1824,155 @@ body.mobile-detected #mobile-folder-btn {
     padding: 20px 0; 
 }
 /* ===== FIN DE CÓDIGO MODIFICADO ===== */
+
+/* ===== INICIO SECCIÓN 17: ESTILOS DE CARTAS (AÑADIDO) ===== */
+
+/* 1. Contenedor (Espejo de #vinyl-background) */
+#card-background {
+    position: fixed;
+    /* Centrado verticalmente, alineado a la DERECHA */
+    top: 50%;
+    right: 0; /* <--- ALINEADO A LA DERECHA */
+    transform: translateY(-50%);
+    
+    /* Mismo tamaño que el vinilo (80vmin), pero solo muestra la mitad (40vmin) */
+    width: 40vmin; 
+    height: 80vmin;
+    
+    /* Oculta la mitad izquierda del stack */
+    overflow: hidden; 
+    
+    /* Detrás de los paneles (z-index: 1+), igual que el vinilo */
+    z-index: 0; 
+    
+    /* Evitar que se pueda hacer clic en él */
+    pointer-events: none; 
+}
+
+/* 2. El Mazo de Cartas (Espejo de .vinyl-disc) */
+.card-stack {
+    position: absolute;
+    /* Ancho completo del área de animación */
+    width: 80vmin; 
+    height: 80vmin;
+    top: 0;
+    
+    /* Posiciona el mazo -40vmin a la derecha. */
+    /* Esto hace que los 40vmin IZQUIERDOS del mazo sean visibles */
+    /* dentro del contenedor #card-background de 40vmin. */
+    right: -40vmin;
+    
+    /* Centra las cartas dentro de este contenedor de 80vmin */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 3. Estilo de cada Carta */
+/* 3. Estilo de cada Carta */
+.playing-card {
+    position: absolute;
+    
+    /* Tamaño relativo (aspect ratio ~1:1.4) */
+    width: 25vmin; 
+    height: 35vmin;
+    
+    /* === INICIO DE MODIFICACIÓN === */
+    
+    /* Estilo visual de carta (fondo oscuro si la imagen falla) */
+    background-color: #333; /* <-- MODIFICADO (antes #f8f8f8) */
+    border: 1px solid #555; /* <-- MODIFICADO (antes #aaa) */
+    
+    /* Propiedades para la imagen de fondo */
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    
+    /* Transición para que la imagen aparezca suavemente */
+    transition: background-image 0.5s ease-in-out;
+    
+    /* === FIN DE MODIFICACIÓN === */
+
+    border-radius: 1.5vmin; /* Bordes redondeados escalables */
+    box-shadow: 0 0 2vmin rgba(0,0,0,0.3);
+    
+    /* Propiedades de la animación */
+    animation-duration: 16s; /* 2 segundos por cada estado (3 estados) */
+    animation-iteration-count: infinite;
+    animation-timing-function: ease-in-out; /* Movimiento suave */
+}
+
+/* 4. Asignación de animaciones */
+.card-1 { animation-name: cycle-card-1; z-index: 3; }
+.card-2 { animation-name: cycle-card-2; z-index: 2; }
+.card-3 { animation-name: cycle-card-3; z-index: 1; }
+
+
+/* 5. Definición de Keyframes (La animación de intercambio) */
+
+/* Definimos 3 estados:
+   - Front: Al frente, grande, rotada. (translateX(0))
+   - Middle: En medio, más pequeña. (translateX(-15vmin))
+   - Back: Atrás, la más pequeña. (translateX(-30vmin))
+*/
+
+/* Animación para Card 1 (Empieza al Frente) */
+@keyframes cycle-card-1 {
+    0% { /* Estado 1 (Frente) */
+        transform: translateX(0) scale(1) rotate(10deg);
+        z-index: 3;
+    }
+    33.33% { /* Estado 2 (Medio) */
+        transform: translateX(-15vmin) scale(0.9) rotate(-5deg);
+        z-index: 2;
+    }
+    66.66% { /* Estado 3 (Atrás) */
+        transform: translateX(-30vmin) scale(0.8) rotate(-15deg);
+        z-index: 1;
+    }
+    100% { /* Vuelve al Estado 1 (Frente) */
+        transform: translateX(0) scale(1) rotate(10deg);
+        z-index: 3;
+    }
+}
+
+/* Animación para Card 2 (Empieza en Medio) */
+@keyframes cycle-card-2 {
+    0% { /* Estado 1 (Medio) */
+        transform: translateX(-15vmin) scale(0.9) rotate(-5deg);
+        z-index: 2;
+    }
+    33.33% { /* Estado 2 (Atrás) */
+        transform: translateX(-30vmin) scale(0.8) rotate(-15deg);
+        z-index: 1;
+    }
+    66.66% { /* Estado 3 (Frente) */
+        transform: translateX(0) scale(1) rotate(10deg);
+        z-index: 3;
+    }
+    100% { /* Vuelve al Estado 1 (Medio) */
+        transform: translateX(-15vmin) scale(0.9) rotate(-5deg);
+        z-index: 2;
+    }
+}
+
+/* Animación para Card 3 (Empieza Atrás) */
+@keyframes cycle-card-3 {
+    0% { /* Estado 1 (Atrás) */
+        transform: translateX(-30vmin) scale(0.8) rotate(-15deg);
+        z-index: 1;
+    }
+    33.33% { /* Estado 2 (Frente) */
+        transform: translateX(0) scale(1) rotate(10deg);
+        z-index: 3;
+    }
+    66.66% { /* Estado 3 (Medio) */
+        transform: translateX(-15vmin) scale(0.9) rotate(-5deg);
+        z-index: 2;
+    }
+    100% { /* Vuelve al Estado 1 (Atrás) */
+        transform: translateX(-30vmin) scale(0.8) rotate(-15deg);
+        z-index: 1;
+    }
+}
+/* ===== FIN SECCIÓN 17 ===== */
