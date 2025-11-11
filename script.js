@@ -1,4 +1,4 @@
-// ====================================================================
+// =M
 // A. VARIABLES GLOBALES (Configuración, Temas, Contexto)
 // ====================================================================
 
@@ -185,6 +185,16 @@ let createRoomBtn, joinRoomBtn, joinRoomInput, roomCodeDisplay, syncStatusElemen
 const TADB_API_KEY = '2'; // API Key pública de TheAudioDB para desarrollo
 let card1, card2, card3;
 // ===== FIN DE CÓDIGO AÑADIDO (TADB Y CARTAS) =====
+
+// ===== INICIO DE CÓDIGO AÑADIDO (MODAL DE INFO) =====
+let infoModal, infoOverlay, infoCloseBtn, infoModalTitle, 
+    infoArtistImage, infoArtistDescription, infoAlbumImage, 
+    infoAlbumDescription, infoPrevBtn, infoNextBtn;
+    
+// Variables para guardar los datos de TADB
+let currentTADBArtistInfo = null;
+let currentTADBTrackInfo = null;
+// ===== FIN DE CÓDIGO AÑADIDO (MODAL DE INFO) =====
 
 
 // ====================================================================
@@ -485,6 +495,7 @@ function updateCardImages(images) {
 
 /**
  * Busca imágenes en TheAudioDB usando el artista y la canción.
+ * MODIFICADO: Ahora también guarda los objetos de datos completos en variables globales.
  * @param {string} artist - Nombre del artista (limpiado)
  * @param {string} song - Título de la canción (limpiado)
  * @returns {Promise<object>} - Promesa que resuelve a { albumArt, fanArt, artistArt }
@@ -504,6 +515,11 @@ async function fetchTADBImages(artist, song) {
 
         if (artistData.artists) {
             const artistInfo = artistData.artists[0];
+            
+            // ===== INICIO DE MODIFICACIÓN (Guardar datos) =====
+            currentTADBArtistInfo = artistInfo; // Guardar el objeto completo
+            // ===== FIN DE MODIFICACIÓN =====
+            
             images.artistArt = artistInfo.strArtistThumb || null;
             // Usamos el fanart del artista como fallback principal
             images.fanArt = artistInfo.strArtistFanart || null; 
@@ -518,6 +534,11 @@ async function fetchTADBImages(artist, song) {
 
             if (trackData.track) {
                 const trackInfo = trackData.track[0];
+                
+                // ===== INICIO DE MODIFICACIÓN (Guardar datos) =====
+                currentTADBTrackInfo = trackInfo; // Guardar el objeto completo
+                // ===== FIN DE MODIFICACIÓN =====
+                
                 // Sobrescribir la carátula del álbum con la específica de la canción
                 if (trackInfo.strTrackThumb && trackInfo.strTrackThumb !== "") {
                     images.albumArt = trackInfo.strTrackThumb;
@@ -543,6 +564,109 @@ async function fetchTADBImages(artist, song) {
     return images;
 }
 // ===== FIN DE FUNCIONES AÑADIDAS (THE AUDIO DB) =====
+
+
+// ===== INICIO DE FUNCIONES AÑADIDAS (MODAL DE INFO) =====
+
+/**
+ * Muestra el modal de información.
+ */
+function openInfoModal() {
+    // Primero, poblar el contenido
+    populateInfoModal();
+    // Luego, mostrar el modal
+    if (infoModal) infoModal.classList.add('open');
+    if (infoOverlay) infoOverlay.classList.add('open');
+}
+
+/**
+ * Cierra el modal de información.
+ */
+function closeInfoModal() {
+    if (infoModal) infoModal.classList.remove('open');
+    if (infoOverlay) infoOverlay.classList.remove('open');
+}
+
+/**
+ * Cambia entre la página de artista y la de álbum.
+ * @param {string} pageName - 'artist' o 'album'
+ */
+function showInfoPage(pageName) {
+    if (!infoModal || !infoModalTitle || !infoPrevBtn || !infoNextBtn) return;
+
+    if (pageName === 'album') {
+        infoModal.dataset.page = 'album';
+        infoModalTitle.textContent = 'Información del Álbum';
+        infoPrevBtn.style.display = 'flex'; // Mostrar botón 'atrás'
+        infoNextBtn.style.display = 'none'; // Ocultar botón 'siguiente'
+    } else { // 'artist'
+        infoModal.dataset.page = 'artist';
+        infoModalTitle.textContent = 'Información del Artista';
+        infoPrevBtn.style.display = 'none'; // Ocultar botón 'atrás'
+        
+        // Solo mostrar 'siguiente' si hay info de álbum
+        const hasAlbumInfo = currentTADBTrackInfo && (currentTADBTrackInfo.strAlbumThumb || currentTADBTrackInfo.strDescriptionEN || currentTADBTrackInfo.strDescriptionES);
+        infoNextBtn.style.display = hasAlbumInfo ? 'flex' : 'none';
+    }
+}
+
+/**
+ * Rellena el modal con la información de TADB almacenada.
+ */
+function populateInfoModal() {
+    // 1. Resetear el estado (mostrar siempre la pág de artista primero)
+    showInfoPage('artist');
+    
+    // 2. Poblar página de Artista
+    if (currentTADBArtistInfo) {
+        // Imagen
+        const artistImg = currentTADBArtistInfo.strArtistThumb || null;
+        infoArtistImage.style.backgroundImage = artistImg ? `url(${artistImg})` : 'none';
+        infoArtistImage.querySelector('.material-icons').style.display = artistImg ? 'none' : 'block';
+        
+        // Biografía (Priorizar español)
+        const bio = currentTADBArtistInfo.strBiographyES || currentTADBArtistInfo.strBiographyEN || null;
+        if (bio) {
+            infoArtistDescription.innerHTML = `<p>${bio.replace(/\n/g, '<br>')}</p>`;
+        } else {
+            infoArtistDescription.innerHTML = '<p class="empty-message">No hay biografía disponible para este artista.</p>';
+        }
+        
+    } else {
+        // Estado vacío si no hay info
+        infoArtistImage.style.backgroundImage = 'none';
+        infoArtistImage.querySelector('.material-icons').style.display = 'block';
+        infoArtistDescription.innerHTML = '<p class="empty-message">No se pudo cargar la información del artista.</p>';
+    }
+    
+    // 3. Poblar página de Álbum
+    if (currentTADBTrackInfo) {
+        // Imagen (usar carátula del álbum de la canción)
+        const albumImg = currentTADBTrackInfo.strTrackThumb || null;
+        infoAlbumImage.style.backgroundImage = albumImg ? `url(${albumImg})` : 'none';
+        infoAlbumImage.querySelector('.material-icons').style.display = albumImg ? 'none' : 'block';
+        
+        // Descripción del álbum (Priorizar español)
+        // Nota: TADB a menudo solo tiene descripciones de álbum en 'searchalbum.php', 
+        // 'searchtrack.php' (que usamos) no siempre la trae. Esto es una limitación de la API.
+        const albumDesc = currentTADBTrackInfo.strDescriptionES || currentTADBTrackInfo.strDescriptionEN || null;
+        if (albumDesc) {
+            infoAlbumDescription.innerHTML = `<p>${albumDesc.replace(/\n/g, '<br>')}</p>`;
+        } else {
+            infoAlbumDescription.innerHTML = '<p class="empty-message">No hay descripción disponible para este álbum.</p>';
+        }
+        
+    } else {
+        // Estado vacío si no hay info
+        infoAlbumImage.style.backgroundImage = 'none';
+        infoAlbumImage.querySelector('.material-icons').style.display = 'block';
+        infoAlbumDescription.innerHTML = '<p class="empty-message">No se pudo cargar la información del álbum.</p>';
+    }
+    
+    // 4. Actualizar visibilidad del botón 'next' (basado en la pág de artista)
+    showInfoPage('artist');
+}
+// ===== FIN DE FUNCIONES AÑADIDAS (MODAL DE INFO) =====
 
 
 // ===================================
@@ -1135,6 +1259,7 @@ function updateMostPlayedUI() {
  * MODIFICADO: Maneja pistas locales (File) y online (Object {isOnline, url, name}).
  * MODIFICADO: Actualiza el vinilo de fondo.
  * MODIFICADO: Llama a la búsqueda de imágenes de TheAudioDB.
+ * MODIFICADO: Resetea las variables de TADB y los botones del nuevo modal.
  */
 function loadTrack(index, autoPlay = false) {
     if (index >= 0 && index < playlist.length && audioPlayer) {
@@ -1150,6 +1275,14 @@ function loadTrack(index, autoPlay = false) {
         // Resetea las imágenes de las cartas a "nada"
         updateCardImages({ albumArt: null, fanArt: null, artistArt: null });
         // ===== FIN: RESETEAR CARTAS =====
+        
+        // ===== INICIO: RESETEAR INFO MODAL (AÑADIDO) =====
+        currentTADBArtistInfo = null;
+        currentTADBTrackInfo = null;
+        // Ocultar botones de navegación del modal por defecto
+        if (infoPrevBtn) infoPrevBtn.style.display = 'none';
+        if (infoNextBtn) infoNextBtn.style.display = 'none';
+        // ===== FIN: RESETEAR INFO MODAL =====
         
         currentTrackIndex = index;
         const track = playlist[currentTrackIndex];
@@ -2449,6 +2582,19 @@ document.addEventListener('DOMContentLoaded', () => {
     card2 = document.querySelector('.card-2');
     card3 = document.querySelector('.card-3');
     // ===== FIN DE CÓDIGO AÑADIDO (TADB Y CARTAS) =====
+    
+    // ===== INICIO DE CÓDIGO AÑADIDO (MODAL DE INFO) =====
+    infoModal = document.getElementById('info-modal');
+    infoOverlay = document.getElementById('info-modal-overlay');
+    infoCloseBtn = document.getElementById('info-close-btn');
+    infoModalTitle = document.getElementById('info-modal-title');
+    infoArtistImage = document.getElementById('info-artist-image');
+    infoArtistDescription = document.getElementById('info-artist-description');
+    infoAlbumImage = document.getElementById('info-album-image');
+    infoAlbumDescription = document.getElementById('info-album-description');
+    infoPrevBtn = document.getElementById('info-prev-btn');
+    infoNextBtn = document.getElementById('info-next-btn');
+    // ===== FIN DE CÓDIGO AÑADIDO (MODAL DE INFO) =====
 
 
     sensitivityMultiplier = parseFloat(getComputedStyle(root).getPropertyValue('--sensitivity-multiplier'));
@@ -2894,6 +3040,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // ===== FIN DE MODIFICACIÓN (Petición del usuario) =====
     // ===== FIN DE CÓDIGO AÑADIDO (ONLINE SEARCH) =====
+    
+    
+    // ===== INICIO DE CÓDIGO AÑADIDO (LISTENERS MODAL INFO) =====
+    if (albumArtContainer) {
+        albumArtContainer.addEventListener('click', () => {
+            // Solo abrir si hay una canción cargada (y por ende, info de TADB)
+            if (currentTrackIndex >= 0 && currentTADBArtistInfo) {
+                openInfoModal();
+            } else if (currentTrackIndex >= 0) {
+                // Si hay canción pero no info, avisar
+                console.warn("No se encontró información de TheAudioDB para mostrar.");
+            }
+        });
+    }
+    if (infoCloseBtn) {
+        infoCloseBtn.addEventListener('click', closeInfoModal);
+    }
+    if (infoOverlay) {
+        infoOverlay.addEventListener('click', closeInfoModal);
+    }
+    if (infoNextBtn) {
+        infoNextBtn.addEventListener('click', () => showInfoPage('album'));
+    }
+    if (infoPrevBtn) {
+        infoPrevBtn.addEventListener('click', () => showInfoPage('artist'));
+    }
+    // ===== FIN DE CÓDIGO AÑADIDO (LISTENERS MODAL INFO) =====
 
 
     // Listeners de Audio (ACTUALIZADO)
