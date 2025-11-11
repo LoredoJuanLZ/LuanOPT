@@ -33,7 +33,8 @@
 .lyrics-panel::before,
 .header-footer-bar::before,
 .sidebar::before,
-.eq-modal::before {
+.eq-modal::before,
+.info-modal::before { /* <-- AÑADIDO .info-modal */
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -56,7 +57,8 @@
 .playlist-panel::before,
 .color-selector::before,
 .lyrics-panel::before,
-.eq-modal::before {
+.eq-modal::before,
+.info-modal::before { /* <-- AÑADIDO .info-modal */
     border-radius: 20px;
     border: 1px solid var(--border-color);
 }
@@ -257,7 +259,16 @@ footer.header-footer-bar {
     background-position: center; 
     flex-shrink: 0; 
     position: relative; 
+    /* ===== INICIO DE CÓDIGO AÑADIDO ===== */
+    cursor: pointer; /* Indica que se puede hacer clic */
+    transition: transform 0.2s ease;
+    /* ===== FIN DE CÓDIGO AÑADIDO ===== */
 }
+/* ===== INICIO DE CÓDIGO AÑADIDO ===== */
+.album-art:hover {
+    transform: scale(1.05); /* Ligero zoom al pasar el mouse */
+}
+/* ===== FIN DE CÓDIGO AÑADIDO ===== */
 
 #album-icon { 
     position: relative; 
@@ -1976,3 +1987,235 @@ body.mobile-detected #mobile-folder-btn {
     }
 }
 /* ===== FIN SECCIÓN 17 ===== */
+
+
+/* ===== INICIO SECCIÓN 18: ESTILOS MODAL DE INFORMACIÓN (AÑADIDO) ===== */
+
+/* 1. Overlay (Copia de .eq-overlay) */
+.info-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    z-index: 1999; /* Mismo nivel que el EQ */
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s linear;
+}
+
+/* 2. Modal (Copia de .eq-modal) */
+.info-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    width: 90vw;
+    max-width: 600px; /* Mismo ancho que el EQ */
+    
+    /* Adaptación de la lógica de transparencia */
+    position: fixed; 
+    background: transparent !important; 
+    border: none !important; 
+    
+    border-radius: 20px;
+    z-index: 2000; /* Encima del overlay */
+    color: var(--card-text-color);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s linear,
+                background-color 0.5s ease, border-color 0.5s ease, color 0.5s ease;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh; /* Altura máxima */
+}
+
+/* 3. Estados 'Open' (Copia de .eq-modal.open) */
+.info-overlay.open,
+.info-modal.open {
+    opacity: 1;
+    visibility: visible;
+}
+.info-modal.open {
+    transform: translate(-50%, -50%) scale(1);
+}
+
+/* 4. Header (Copia de .eq-header) */
+.info-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+    transition: border-color 0.5s ease;
+    position: relative; /* para z-index */
+    z-index: 1;
+}
+.info-header h3 { 
+    margin: 0; 
+    font-size: 1.2em;
+    /* Para que el título cambie con la flecha */
+    transition: opacity 0.2s ease-in-out; 
+}
+
+/* 5. Body (Contenedor del slider) */
+.info-body {
+    /* Usamos flex-grow para que ocupe el espacio sobrante */
+    flex-grow: 1; 
+    position: relative; /* Clave para los botones de nav */
+    z-index: 1;
+    overflow: hidden; /* Oculta el slider horizontal */
+}
+
+/* 6. Slider */
+.info-content-slider {
+    display: flex;
+    width: 200%; /* Dos páginas, 100% cada una */
+    height: 100%;
+    transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* 7. Página (Artista / Álbum) */
+.info-page {
+    width: 50%; /* Cada página es la mitad del slider (o sea, 100% del modal) */
+    height: 100%;
+    padding: 20px;
+    box-sizing: border-box;
+    
+    /* Layout de la página: Imagen arriba, texto abajo */
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+/* 8. Imagen (Artista / Álbum) */
+.info-image {
+    width: 100%;
+    height: 200px; /* Altura fija para la imagen */
+    flex-shrink: 0; /* No se encoge */
+    
+    background-color: #000; /* Fondo si la imagen falla */
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    
+    border-radius: 15px;
+    
+    /* Para centrar el icono de fallback */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--card-text-secondary-color);
+}
+.info-image .material-icons {
+    font-size: 80px;
+    opacity: 0.8;
+}
+
+/* 9. Descripción (Biografía / Reseña) */
+.info-description {
+    flex-grow: 1; /* Ocupa el resto del espacio vertical */
+    overflow-y: auto;
+    
+    /* Para asegurar que el scroll funcione correctamente en un contenedor flex,
+       le damos una altura (o max-height) explícita o una altura mínima de 0.
+       Usaremos una altura base para el cálculo del scroll.
+    */
+    height: 250px; /* Ajustar si es necesario. */
+
+    /* Estilos de texto */
+    font-size: 0.95em;
+    line-height: 1.6;
+    color: var(--card-text-secondary-color);
+    
+    /* Scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+}
+.info-description::-webkit-scrollbar { width: 5px; }
+.info-description::-webkit-scrollbar-track { background: transparent; }
+.info-description::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 10px; }
+
+/* 10. Lógica del Slider (CSS) */
+/* Cuando el modal tiene data-page="album", mueve el slider */
+.info-modal[data-page="album"] .info-content-slider {
+    transform: translateX(-50%);
+}
+
+/* 11. Botones de Navegación */
+.info-nav-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 5;
+    
+    /* Estilo de botón (semi-transparente) */
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-color);
+    color: var(--card-text-color);
+    border-radius: 50%;
+    
+    width: 40px;
+    height: 40px;
+    
+    cursor: pointer;
+    
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    
+    transition: background-color 0.3s, border-color 0.3s;
+}
+.info-nav-btn:hover {
+    background: var(--main-color);
+    border-color: var(--main-color);
+}
+
+.info-nav-btn.prev-btn {
+    left: 10px;
+    padding-right: 2px; /* Ajuste visual para la flecha */
+}
+.info-nav-btn.next-btn {
+    right: 10px;
+    padding-left: 2px; /* Ajuste visual para la flecha */
+}
+.info-nav-btn .material-icons {
+    font-size: 20px;
+}
+
+/* 12. Media Query para Móvil (Altura del modal) */
+@media (max-width: 600px) {
+    /*
+       Aplica los mismos estilos 'fullscreen' que el modal de EQ
+       para consistencia.
+    */
+    .info-modal {
+        width: 95vw;
+        top: 0;
+        left: 0;
+        transform: translate(0, 0) scale(1);
+        border-radius: 0;
+        height: 100vh;
+        max-height: 100vh;
+    }
+    
+    /* Ajuste de la altura del scroll de descripción en móvil */
+    .info-description {
+        height: auto; /* Deja que flex-grow haga su trabajo */
+        /* La altura será 'el resto del modal' */
+    }
+    
+    .info-image {
+        height: 150px; /* Imagen más pequeña en móvil */
+    }
+    .info-image .material-icons {
+        font-size: 60px;
+    }
+}
+
+/* ===== FIN SECCIÓN 18 ===== */
