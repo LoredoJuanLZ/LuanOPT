@@ -148,7 +148,7 @@
             <div class="controls-panel">
 
                 <div class="song-info">
-                    <div class="album-art" id="album-art-container">
+                    <div class="album-art" id="album-art-container" title="Ver información del artista">
                         <span id="album-icon" class="material-icons">music_note</span>
                     </div>
                     <div class="text-details">
@@ -361,6 +361,46 @@
             </div>
             <div id="eq-bands-container">
                 </div>
+        </div>
+    </div>
+
+    <div id="info-modal-overlay" class="info-overlay"></div>
+    <div id="info-modal" class="info-modal">
+        <div class="info-header">
+            <h3 id="info-modal-title">Información del Artista</h3>
+            <button id="info-close-btn" class="sidebar-toggle-btn">
+                <span class="material-icons">close</span>
+            </button>
+        </div>
+        <div class="info-body">
+            
+            <div class="info-content-slider">
+                <div id="info-page-artist" class="info-page">
+                    <div id="info-artist-image" class="info-image">
+                        <span class="material-icons">mic</span>
+                    </div>
+                    <div id="info-artist-description" class="info-description">
+                        <p class="empty-message">No hay biografía disponible.</p>
+                    </div>
+                </div>
+                
+                <div id="info-page-album" class="info-page">
+                    <div id="info-album-image" class="info-image">
+                        <span class="material-icons">album</span>
+                    </div>
+                    <div id="info-album-description" class="info-description">
+                        <p class="empty-message">No hay descripción del álbum disponible.</p>
+                    </div>
+                </div>
+            </div>
+
+            <button id="info-prev-btn" class="info-nav-btn prev-btn" title="Artista" style="display: none;">
+                <span class="material-icons">arrow_back_ios</span>
+            </button>
+            <button id="info-next-btn" class="info-nav-btn next-btn" title="Álbum" style="display: none;">
+                <span class="material-icons">arrow_forward_ios</span>
+            </button>
+            
         </div>
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
